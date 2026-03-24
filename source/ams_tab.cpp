@@ -41,12 +41,7 @@ bool AmsTab::CreateDownloadItems(const nlohmann::ordered_json& cfw_links, bool h
             listItem = new brls::ListItem(link.first);
             listItem->setHeight(LISTITEM_HEIGHT);
             listItem->getClickEvent()->subscribe([this, text, text_hekate, url, hekate_url, hekate, pack, ams](brls::View* view) {
-                if (!erista && !std::filesystem::exists(MARIKO_PAYLOAD_PATH)) {
-                    brls::Application::crash("menus/errors/mariko_payload_missing"_i18n);
-                }
-                else {
-                    CreateStagedFrames(text, url, erista, ams, hekate && !pack, text_hekate, hekate_url);
-                }
+                CreateStagedFrames(text, url, erista, ams, hekate && !pack, text_hekate, hekate_url);
             });
             this->RegisterListItemAction(listItem);
             this->addView(listItem);

@@ -55,7 +55,7 @@ ConfirmPage_AmsUpdate::ConfirmPage_AmsUpdate(brls::StagedAppletFrame* frame, con
             else {
                 fs::copyFile(REBOOT_PAYLOAD_PATH, MARIKO_PAYLOAD_PATH_TEMP);
             }
-            fs::copyFile(RCM_PAYLOAD_PATH, MARIKO_PAYLOAD_PATH);
+            fs::copyFile(std::string(KEFIR_DIRECTORY_PATH) + "payload.bin", MARIKO_PAYLOAD_PATH);
             util::shutDown(true);
         }
     });
