@@ -1,7 +1,10 @@
 #include "changelog_page.hpp"
 
 #include <fstream>
+#include <sstream>
 #include "utils.hpp"
+#include "fs.hpp"
+#include "constants.hpp"
 
 namespace i18n = brls::i18n;
 using namespace i18n::literals;
@@ -291,6 +294,173 @@ void ChangelogPage::ShowChangelogContent(const std::string version, const std::s
     list->addView(listItem);
 }
 
+// =====================================================================
+// Changelog helpers
+// =====================================================================
+
+// Returns true when the app UI is set to Ukrainian
+static bool isUkrainianLocale()
+{
+    // Primary: check the language.json override written by the language selector
+    nlohmann::json langFile = fs::parseJsonFile(LANGUAGE_JSON);
+    if (langFile.find("language") != langFile.end()) {
+        std::string lang = langFile["language"].get<std::string>();
+        return lang == "ua" || lang == "uk";
+    }
+    // Fallback: Switch system locale
+    std::string locale = brls::i18n::getCurrentLocale();
+    return locale == "uk" || locale == "ua";
+}
+
+// Extracts the UKR or ENG section from a raw changelog file.
+// UKR section: text between "#### **UKR**" and "____"
+// ENG section: text after "#### **ENG**"
+static std::string extractChangelogSection(const std::string& raw, bool ukrainian)
+{
+    const std::string urkHeader = "#### **UKR**";
+    const std::string engHeader = "#### **ENG**";
+    const std::string separator = "____";
+
+    if (ukrainian) {
+        size_t pos = raw.find(urkHeader);
+        if (pos == std::string::npos) return raw; // no section marker — return everything
+        size_t start = pos + urkHeader.size();
+        size_t sepPos = raw.find(separator, start);
+        size_t end = (sepPos != std::string::npos) ? sepPos : raw.size();
+        return raw.substr(start, end - start);
+    } else {
+        size_t pos = raw.find(engHeader);
+        if (pos == std::string::npos) return raw;
+        return raw.substr(pos + engHeader.size());
+    }
+}
+
+// Remove markdown link syntax [visible](url) -> visible
+// Leaves plain [text] brackets untouched (they carry semantic meaning like [Updated]).
+static std::string removeMarkdownLinks(const std::string& text)
+{
+    std::string result;
+    result.reserve(text.size());
+    size_t i = 0;
+    while (i < text.size()) {
+        if (text[i] == '[') {
+            size_t closeB = text.find(']', i + 1);
+            if (closeB != std::string::npos
+                && closeB + 1 < text.size()
+                && text[closeB + 1] == '(') {
+                size_t closeP = text.find(')', closeB + 2);
+                if (closeP != std::string::npos) {
+                    // [label](url) -> label
+                    result += text.substr(i + 1, closeB - i - 1);
+                    i = closeP + 1;
+                    continue;
+                }
+            }
+        }
+        result += text[i++];
+    }
+    return result;
+}
+
+// Strip inline markdown from a single line (after links are already removed):
+// - backtick code spans: `code` -> code
+// - **bold** markers -> text kept, markers removed
+// - *italic* markers -> text kept
+static std::string stripInlineMarkdown(const std::string& text)
+{
+    std::string s = removeMarkdownLinks(text);
+
+    // Remove backtick spans
+    std::string out;
+    out.reserve(s.size());
+    bool inCode = false;
+    for (char c : s) {
+        if (c == '`') { inCode = !inCode; continue; }
+        out += c;
+    }
+    s = out; out.clear();
+
+    // Remove ** bold markers
+    for (size_t i = 0; i < s.size(); ) {
+        if (i + 1 < s.size() && s[i] == '*' && s[i+1] == '*') { i += 2; continue; }
+        out += s[i++];
+    }
+    s = out; out.clear();
+
+    // Remove remaining single * italic markers
+    for (char c : s) {
+        if (c != '*') out += c;
+    }
+    return out;
+}
+
+// Returns true when the trimmed line is entirely bold: **content**
+static bool isFullBoldLine(const std::string& trimmed)
+{
+    return trimmed.size() >= 5
+        && trimmed[0] == '*' && trimmed[1] == '*'
+        && trimmed[trimmed.size()-1] == '*' && trimmed[trimmed.size()-2] == '*';
+}
+
+// Parse a changelog section (already language-filtered) and add Labels to the list.
+// Rules:
+//  - Blank lines -> skip
+//  - Lines starting with #### or ## -> skip (section headers already stripped)
+//  - Lines that are all-bold like **814** or **Full support** -> MEDIUM label
+//  - Lines starting with * or - (bullets) -> strip markdown, prefix with bullet char, DESCRIPTION label
+//  - Other lines -> strip markdown, DESCRIPTION label
+static void addChangelogToList(brls::List* list, const std::string& text)
+{
+    std::istringstream stream(text);
+    std::string line;
+
+    while (std::getline(stream, line)) {
+        // Strip trailing \r
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+
+        // Find first non-space character
+        size_t firstNS = line.find_first_not_of(" \t");
+        if (firstNS == std::string::npos) continue; // blank line — skip
+
+        std::string trimmed = line.substr(firstNS);
+
+        // Skip section/global headers
+        if (trimmed.substr(0, 2) == "##") continue;
+        // Skip separator lines (____) or horizontal rules (---)
+        if (trimmed.find_first_not_of('_') == std::string::npos) continue;
+        if (trimmed.find_first_not_of('-') == std::string::npos) continue;
+
+        // Full-bold line (version number or summary heading)
+        if (isFullBoldLine(trimmed)) {
+            // Strip the ** markers to get content
+            std::string content = trimmed.substr(2, trimmed.size() - 4);
+            auto* label = new brls::Label(brls::LabelStyle::MEDIUM, content, true);
+            list->addView(label);
+            continue;
+        }
+
+        // Bullet item: leading * or -
+        bool isBullet = (trimmed[0] == '*' || trimmed[0] == '-');
+        std::string indent(line.begin(), line.begin() + (int)firstNS);
+
+        std::string processed = stripInlineMarkdown(trimmed);
+
+        if (isBullet) {
+            // Replace leading * or - with bullet character
+            if (!processed.empty() && (processed[0] == '*' || processed[0] == '-'))
+                processed = "\u2022" + processed.substr(1); // • replaces * / -
+        }
+
+        // Preserve indent (convert tabs to spaces) for nested items
+        std::string indentStr;
+        for (char c : indent) indentStr += (c == '\t' ? "    " : " ");
+
+        auto* label = new brls::Label(brls::LabelStyle::DESCRIPTION, indentStr + processed, true);
+        list->addView(label);
+    }
+}
+
+// =====================================================================
 // ChangelogPage_Kefir implementation
 ChangelogPage_Kefir::ChangelogPage_Kefir(brls::StagedAppletFrame* frame, const std::string& currentVersion, const std::string& targetVersion, const std::string& url)
 {
@@ -344,16 +514,22 @@ ChangelogPage_Kefir::ChangelogPage_Kefir(brls::StagedAppletFrame* frame, const s
             if (!changelogText.empty()) {
                 foundAny = true;
 
-                // Version header
+                // Extract the language-appropriate section
+                bool ukrainian = isUkrainianLocale();
+                std::string section = extractChangelogSection(changelogText, ukrainian);
+                logFile << "Language: " << (ukrainian ? "ua" : "en")
+                        << ", section length: " << section.size() << std::endl;
+
+                // Version header label
                 auto* versionLabel = new brls::Label(brls::LabelStyle::MEDIUM, "Kefir " + versionStr, true);
                 this->changelogList->addView(versionLabel);
 
-                // Changelog text
-                auto* changelogLabel = new brls::Label(brls::LabelStyle::DESCRIPTION, changelogText, true);
-                this->changelogList->addView(changelogLabel);
+                // Parse and add formatted changelog content
+                addChangelogToList(this->changelogList, section);
 
-                // Separator
-                this->changelogList->addView(new brls::Label(brls::LabelStyle::SMALL, "\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015", true));
+                // Visual separator
+                this->changelogList->addView(new brls::Label(
+                    brls::LabelStyle::SMALL, "\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015", true));
             }
         }
 
