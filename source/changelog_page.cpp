@@ -1,5 +1,7 @@
 #include "changelog_page.hpp"
 
+#include <algorithm>
+#include <cmath>
 #include <fstream>
 #include <sstream>
 #include "utils.hpp"
@@ -298,23 +300,160 @@ void ChangelogPage::ShowChangelogContent(const std::string version, const std::s
 // Changelog helpers
 // =====================================================================
 
+// ---- RichTextLabel -------------------------------------------------
+// A custom View that renders a string with inline **bold** support.
+// Since borealis FontStash has only one font face (NX shared font),
+// bold is simulated by drawing each glyph twice with a 0.5 px x-offset.
+class RichTextLabel : public brls::View
+{
+    struct Seg { std::string text; bool bold; };
+    std::vector<Seg> segs;
+
+    void parse(const std::string& richText)
+    {
+        bool isBold = false;
+        std::string cur;
+        for (size_t i = 0; i < richText.size(); ) {
+            if (i + 1 < richText.size() && richText[i] == '*' && richText[i+1] == '*') {
+                if (!cur.empty()) { segs.push_back({cur, isBold}); cur.clear(); }
+                isBold = !isBold;
+                i += 2;
+            } else {
+                cur += richText[i++];
+            }
+        }
+        if (!cur.empty()) segs.push_back({cur, isBold});
+    }
+
+    // Word-wrap pass. Returns total rendered height.
+    // doRender=false → measure only; doRender=true → draw.
+    float wrapPass(NVGcontext* vg, float bx, float by, float vw,
+                   float fsz, float pixLineH, int font,
+                   NVGcolor color, bool doRender)
+    {
+        nvgFontFaceId(vg, font);
+        nvgFontSize(vg, fsz);
+        nvgTextAlign(vg, NVG_ALIGN_LEFT | NVG_ALIGN_TOP);
+        if (doRender) nvgFillColor(vg, color);
+
+        float spBounds[4];
+        nvgTextBounds(vg, 0, 0, " ", nullptr, spBounds);
+        float spaceW = spBounds[2] - spBounds[0];
+
+        float curX = bx, curY = by;
+        bool lineStart = true;
+        bool needsSpace = false;
+        std::string wordBuf;
+        bool wordBold = false;
+
+        auto flushWord = [&]() {
+            if (wordBuf.empty()) return;
+
+            float bounds[4];
+            nvgFontFaceId(vg, font);
+            nvgFontSize(vg, fsz);
+            nvgTextBounds(vg, 0, 0, wordBuf.c_str(), nullptr, bounds);
+            float ww = bounds[2] - bounds[0];
+            float boldExtra = wordBold ? 0.5f : 0.0f;
+            float sw = needsSpace ? spaceW : 0.0f;
+
+            // Wrap if word doesn’t fit
+            if (!lineStart && curX + sw + ww + boldExtra > bx + vw) {
+                curX = bx;
+                curY += pixLineH;
+                lineStart = true;
+                sw = 0.0f;
+            }
+
+            if (doRender && !lineStart && sw > 0.0f)
+                nvgText(vg, curX, curY, " ", nullptr);
+            curX += sw;
+
+            if (doRender) {
+                nvgFontFaceId(vg, font);
+                nvgFontSize(vg, fsz);
+                nvgText(vg, curX, curY, wordBuf.c_str(), nullptr);
+                if (wordBold) // bold simulation: second draw shifted 0.5 px
+                    nvgText(vg, curX + 0.5f, curY, wordBuf.c_str(), nullptr);
+            }
+
+            curX += ww + boldExtra;
+            lineStart = false;
+            needsSpace = false;
+            wordBuf.clear();
+        };
+
+        for (auto& seg : segs) {
+            wordBold = seg.bold;
+            for (char c : seg.text) {
+                if (c == '\n') {
+                    flushWord();
+                    needsSpace = false;
+                    curX = bx;
+                    curY += pixLineH;
+                    lineStart = true;
+                } else if (c == ' ') {
+                    flushWord();
+                    if (!lineStart) needsSpace = true;
+                } else {
+                    wordBuf += c;
+                }
+            }
+            flushWord(); // flush at ** boundary (no space injected)
+        }
+
+        return (curY - by) + pixLineH;
+    }
+
+public:
+    RichTextLabel(const std::string& richText) { parse(richText); }
+
+    void layout(NVGcontext* vg, brls::Style* style, brls::FontStash* stash) override
+    {
+        if (this->width == 0 || segs.empty()) { this->height = 0; return; }
+
+        float fsz      = (float)style->Label.descriptionFontSize;
+        float pixLineH = fsz * style->Label.lineHeight;
+
+        nvgSave(vg);
+        nvgReset(vg);
+
+        float h = wrapPass(vg, 0.0f, 0.0f, (float)this->width,
+                           fsz, pixLineH, stash->regular, {}, false);
+        this->height = (unsigned)std::ceil(h);
+        nvgRestore(vg);
+    }
+
+    void draw(NVGcontext* vg, int x, int y, unsigned width, unsigned /*height*/,
+              brls::Style* style, brls::FrameContext* ctx) override
+    {
+        if (segs.empty()) return;
+
+        float fsz      = (float)style->Label.descriptionFontSize;
+        float pixLineH = fsz * style->Label.lineHeight;
+        NVGcolor color = a(ctx->theme->textColor);
+
+        nvgSave(vg);
+        wrapPass(vg, (float)x, (float)y, (float)width,
+                 fsz, pixLineH, ctx->fontStash->regular, color, true);
+        nvgRestore(vg);
+    }
+};
+// ---- End RichTextLabel ---------------------------------------------
+
 // Returns true when the app UI is set to Ukrainian
 static bool isUkrainianLocale()
 {
-    // Primary: check the language.json override written by the language selector
     nlohmann::json langFile = fs::parseJsonFile(LANGUAGE_JSON);
     if (langFile.find("language") != langFile.end()) {
         std::string lang = langFile["language"].get<std::string>();
         return lang == "ua" || lang == "uk";
     }
-    // Fallback: Switch system locale
     std::string locale = brls::i18n::getCurrentLocale();
     return locale == "uk" || locale == "ua";
 }
 
-// Extracts the UKR or ENG section from a raw changelog file.
-// UKR section: text between "#### **UKR**" and "____"
-// ENG section: text after "#### **ENG**"
+// Extracts UKR or ENG section from a raw changelog file.
 static std::string extractChangelogSection(const std::string& raw, bool ukrainian)
 {
     const std::string urkHeader = "#### **UKR**";
@@ -323,11 +462,10 @@ static std::string extractChangelogSection(const std::string& raw, bool ukrainia
 
     if (ukrainian) {
         size_t pos = raw.find(urkHeader);
-        if (pos == std::string::npos) return raw; // no section marker — return everything
+        if (pos == std::string::npos) return raw;
         size_t start = pos + urkHeader.size();
         size_t sepPos = raw.find(separator, start);
-        size_t end = (sepPos != std::string::npos) ? sepPos : raw.size();
-        return raw.substr(start, end - start);
+        return raw.substr(start, (sepPos != std::string::npos ? sepPos : raw.size()) - start);
     } else {
         size_t pos = raw.find(engHeader);
         if (pos == std::string::npos) return raw;
@@ -335,22 +473,17 @@ static std::string extractChangelogSection(const std::string& raw, bool ukrainia
     }
 }
 
-// Remove markdown link syntax [visible](url) -> visible
-// Leaves plain [text] brackets untouched (they carry semantic meaning like [Updated]).
+// Remove markdown links: [visible](url) → visible
 static std::string removeMarkdownLinks(const std::string& text)
 {
     std::string result;
     result.reserve(text.size());
-    size_t i = 0;
-    while (i < text.size()) {
+    for (size_t i = 0; i < text.size(); ) {
         if (text[i] == '[') {
             size_t closeB = text.find(']', i + 1);
-            if (closeB != std::string::npos
-                && closeB + 1 < text.size()
-                && text[closeB + 1] == '(') {
+            if (closeB != std::string::npos && closeB + 1 < text.size() && text[closeB+1] == '(') {
                 size_t closeP = text.find(')', closeB + 2);
                 if (closeP != std::string::npos) {
-                    // [label](url) -> label
                     result += text.substr(i + 1, closeB - i - 1);
                     i = closeP + 1;
                     continue;
@@ -362,39 +495,7 @@ static std::string removeMarkdownLinks(const std::string& text)
     return result;
 }
 
-// Strip inline markdown from a single line (after links are already removed):
-// - backtick code spans: `code` -> code
-// - **bold** markers -> text kept, markers removed
-// - *italic* markers -> text kept
-static std::string stripInlineMarkdown(const std::string& text)
-{
-    std::string s = removeMarkdownLinks(text);
-
-    // Remove backtick spans
-    std::string out;
-    out.reserve(s.size());
-    bool inCode = false;
-    for (char c : s) {
-        if (c == '`') { inCode = !inCode; continue; }
-        out += c;
-    }
-    s = out; out.clear();
-
-    // Remove ** bold markers
-    for (size_t i = 0; i < s.size(); ) {
-        if (i + 1 < s.size() && s[i] == '*' && s[i+1] == '*') { i += 2; continue; }
-        out += s[i++];
-    }
-    s = out; out.clear();
-
-    // Remove remaining single * italic markers
-    for (char c : s) {
-        if (c != '*') out += c;
-    }
-    return out;
-}
-
-// Returns true when the trimmed line is entirely bold: **content**
+// Returns true when trimmed line is entirely bold: **content**
 static bool isFullBoldLine(const std::string& trimmed)
 {
     return trimmed.size() >= 5
@@ -402,62 +503,116 @@ static bool isFullBoldLine(const std::string& trimmed)
         && trimmed[trimmed.size()-1] == '*' && trimmed[trimmed.size()-2] == '*';
 }
 
-// Parse a changelog section (already language-filtered) and add Labels to the list.
-// Rules:
-//  - Blank lines -> skip
-//  - Lines starting with #### or ## -> skip (section headers already stripped)
-//  - Lines that are all-bold like **814** or **Full support** -> MEDIUM label
-//  - Lines starting with * or - (bullets) -> strip markdown, prefix with bullet char, DESCRIPTION label
-//  - Other lines -> strip markdown, DESCRIPTION label
-static void addChangelogToList(brls::List* list, const std::string& text)
+// Extract ONLY the changelog entries for version `ver` from a language section.
+// Version blocks are delimited by full-bold integer lines like **814**.
+// Non-version bold lines (summaries like **Full support 22.1.0**) are included
+// only when they appear before the first version-number marker (preamble) AND
+// the entire target version was found; otherwise they are also shown as-is.
+static std::string filterVersionSection(const std::string& section, int ver)
 {
-    std::istringstream stream(text);
+    std::string target = std::to_string(ver);
+    std::istringstream stream(section);
     std::string line;
+    bool inTarget = false;
+    bool targetFound = false;
+    std::string result;
 
     while (std::getline(stream, line)) {
-        // Strip trailing \r
         if (!line.empty() && line.back() == '\r') line.pop_back();
 
-        // Find first non-space character
-        size_t firstNS = line.find_first_not_of(" \t");
-        if (firstNS == std::string::npos) continue; // blank line — skip
+        size_t ns = line.find_first_not_of(" \t");
+        if (ns == std::string::npos) continue; // skip blank lines
+        std::string trimmed = line.substr(ns);
 
-        std::string trimmed = line.substr(firstNS);
-
-        // Skip section/global headers
-        if (trimmed.substr(0, 2) == "##") continue;
-        // Skip separator lines (____) or horizontal rules (---)
-        if (trimmed.find_first_not_of('_') == std::string::npos) continue;
-        if (trimmed.find_first_not_of('-') == std::string::npos) continue;
-
-        // Full-bold line (version number or summary heading)
+        // Detect a version-number header like **814**
         if (isFullBoldLine(trimmed)) {
-            // Strip the ** markers to get content
             std::string content = trimmed.substr(2, trimmed.size() - 4);
-            auto* label = new brls::Label(brls::LabelStyle::MEDIUM, content, true);
-            list->addView(label);
-            continue;
+            bool isVerNum = !content.empty() &&
+                            std::all_of(content.begin(), content.end(), ::isdigit);
+            if (isVerNum) {
+                // Start tracking only when we hit our target
+                inTarget = (content == target);
+                if (inTarget) targetFound = true;
+                continue; // Don’t emit the **NNN** line itself
+            }
         }
 
-        // Bullet item: leading * or -
-        bool isBullet = (trimmed[0] == '*' || trimmed[0] == '-');
-        std::string indent(line.begin(), line.begin() + (int)firstNS);
-
-        std::string processed = stripInlineMarkdown(trimmed);
-
-        if (isBullet) {
-            // Replace leading * or - with bullet character
-            if (!processed.empty() && (processed[0] == '*' || processed[0] == '-'))
-                processed = "\u2022" + processed.substr(1); // • replaces * / -
-        }
-
-        // Preserve indent (convert tabs to spaces) for nested items
-        std::string indentStr;
-        for (char c : indent) indentStr += (c == '\t' ? "    " : " ");
-
-        auto* label = new brls::Label(brls::LabelStyle::DESCRIPTION, indentStr + processed, true);
-        list->addView(label);
+        if (inTarget)
+            result += line + "\n";
     }
+
+    // Safety: if target version wasn’t found, fall back to full section
+    if (!targetFound) return section;
+    return result;
+}
+
+// Build a rich-text string for RichTextLabel from a filtered version section.
+// **bold** markers are PRESERVED; markdown links are stripped; backticks removed;
+// bullets converted to •; blank lines removed.
+static std::string buildRichText(const std::string& section)
+{
+    std::istringstream stream(section);
+    std::string line;
+    std::string result;
+    bool firstLine = true;
+
+    while (std::getline(stream, line)) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+
+        size_t ns = line.find_first_not_of(" \t");
+        if (ns == std::string::npos) continue; // skip blank lines
+        std::string trimmed = line.substr(ns);
+
+        // Skip global headers (## / ####)
+        if (trimmed.size() >= 2 && trimmed[0] == '#' && trimmed[1] == '#') continue;
+        // Skip separator lines (all underscores or all dashes)
+        if (!trimmed.empty() && trimmed.find_first_not_of('_') == std::string::npos) continue;
+        if (trimmed.size() >= 3 && trimmed.find_first_not_of('-') == std::string::npos) continue;
+
+        // Indent for nested bullets
+        std::string indentStr;
+        for (size_t i = 0; i < ns; i++)
+            indentStr += (line[i] == '\t') ? "    " : " ";
+
+        // Remove markdown links (keeps **bold** intact)
+        std::string processed = removeMarkdownLinks(trimmed);
+
+        // Remove backtick code spans
+        {
+            std::string out; bool inCode = false;
+            for (char c : processed) {
+                if (c == '`') { inCode = !inCode; continue; }
+                out += c;
+            }
+            processed = out;
+        }
+
+        // Keep ** bold markers; remove bare single * (italic)
+        {
+            std::string out;
+            for (size_t i = 0; i < processed.size(); ) {
+                if (processed[i] == '*') {
+                    if (i + 1 < processed.size() && processed[i+1] == '*') {
+                        out += "**"; i += 2; // keep bold markers
+                    } else {
+                        i++; // drop single * italic
+                    }
+                } else {
+                    out += processed[i++];
+                }
+            }
+            processed = out;
+        }
+
+        // Replace leading bullet * or - with •
+        if (!processed.empty() && (processed[0] == '*' || processed[0] == '-'))
+            processed = "\u2022" + processed.substr(1);
+
+        if (!firstLine) result += '\n';
+        result += indentStr + processed;
+        firstLine = false;
+    }
+    return result;
 }
 
 // =====================================================================
@@ -514,22 +669,32 @@ ChangelogPage_Kefir::ChangelogPage_Kefir(brls::StagedAppletFrame* frame, const s
             if (!changelogText.empty()) {
                 foundAny = true;
 
-                // Extract the language-appropriate section
                 bool ukrainian = isUkrainianLocale();
                 std::string section = extractChangelogSection(changelogText, ukrainian);
+
+                // Keep only entries for this specific version (the file is cumulative)
+                std::string filtered = filterVersionSection(section, ver);
                 logFile << "Language: " << (ukrainian ? "ua" : "en")
-                        << ", section length: " << section.size() << std::endl;
+                        << ", filtered len: " << filtered.size() << std::endl;
 
-                // Version header label
-                auto* versionLabel = new brls::Label(brls::LabelStyle::MEDIUM, "Kefir " + versionStr, true);
-                this->changelogList->addView(versionLabel);
+                if (!filtered.empty()) {
+                    // Version header ("Kefir 814")
+                    auto* verLabel = new brls::Label(brls::LabelStyle::MEDIUM, "Kefir " + versionStr, true);
+                    this->changelogList->addView(verLabel);
 
-                // Parse and add formatted changelog content
-                addChangelogToList(this->changelogList, section);
+                    // ONE RichTextLabel for all content (no inter-line borealis spacing)
+                    std::string richText = buildRichText(filtered);
+                    if (!richText.empty()) {
+                        auto* richLabel = new RichTextLabel(richText);
+                        this->changelogList->addView(richLabel);
+                    }
 
-                // Visual separator
-                this->changelogList->addView(new brls::Label(
-                    brls::LabelStyle::SMALL, "\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015", true));
+                    // Visual separator
+                    this->changelogList->addView(new brls::Label(
+                        brls::LabelStyle::SMALL,
+                        "\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015",
+                        true));
+                }
             }
         }
 
