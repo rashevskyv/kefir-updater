@@ -18,6 +18,7 @@ protected:
     bool CreateDownloadItems(const nlohmann::ordered_json& cfw_links, bool hekate = true, bool ams = true);
     void CreateNotFoundLabel();
     virtual void RegisterListItemAction(brls::ListItem* listItem);
+    std::string extractVersionFromUrl(const std::string& url);
 
 public:
     AmsTab(const nlohmann::ordered_json& nxlinks, const bool erista = true);

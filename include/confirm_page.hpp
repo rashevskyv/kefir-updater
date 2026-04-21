@@ -10,6 +10,7 @@ protected:
     brls::Label* label = nullptr;
     std::chrono::system_clock::time_point start = std::chrono::high_resolution_clock::now();
     bool done = false;
+    brls::GenericEvent::Subscription clickSubscription;
 
 public:
     ConfirmPage(brls::StagedAppletFrame* frame, const std::string& text);

@@ -45,6 +45,7 @@ $ sudo (dkp-)pacman -S  switch-glfw \
                         switch-curl \
                         switch-glm \
                         switch-mbedtls \
+                        switch-glad \
                         switch-zlib
 ```
 Use [`switch-ex-curl`](https://github.com/eXhumer/switch-ex-curl) instead of `switch-curl` to use this app with an invalid SSL certificate.

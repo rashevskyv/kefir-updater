@@ -87,10 +87,12 @@
     "missing": "누락됨",
     "applet_mode_not_supported": "이 기능은 애플릿 모드에서 사용할 수 없습니다. 접속하려면 타이틀 오버라이드를 통해 일체형-스위치-업데이터를 시작하세요.",
     "nothing_to_see": "여기는 볼게 없습니다!",
-    "low_fw_warning": "WARNING!!!\n\n시스템 펌웨어를 다운그레이드하면 공장 초기화를 수행하기 전까지\n기기가 부팅되지 않을 수 있습니다.\n이 문제는 'hekate > Payloads > TegraExplorer'로 진입하여\n'SD:/config/DowngradeFix.te' 스크립트를 선택하면 해결할 수 있습니다.\n또는 다음 동영상 가이드를 참고하여 수동으로 진행하세요: https://bit.ly/fw_downgrade\n\n"
+    "low_fw_warning": "WARNING!!!\n\n시스템 펌웨어를 다운그레이드하면 공장 초기화를 수행하기 전까지\n기기가 부팅되지 않을 수 있습니다.\n이 문제는 'hekate > Payloads > TegraExplorer > DowngradeFix.te' 스크립트를 선택하면 해결할 수 있습니다.\n또는 다음 동영상 가이드를 참고하여 수동으로 진행하세요: https://bit.ly/fw_downgrade\n\n"
   },
   "changelog": {
-    "changelog": "변경이력"
+    "changelog": "변경이력",
+    "review_before_update": "업데이트를 진행하기 전에 Kefir 변경이력을 검토하세요",
+    "proceed_to_update": "업데이트 진행"
   },
   "payloads": {
     "dl_payloads": "페이로드 다운로드",

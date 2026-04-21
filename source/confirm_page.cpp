@@ -14,7 +14,7 @@ ConfirmPage::ConfirmPage(brls::StagedAppletFrame* frame, const std::string& text
 {
     this->button = (new brls::Button(brls::ButtonStyle::REGULAR))->setLabel("menus/common/back"_i18n);
     this->button->setParent(this);
-    this->button->getClickEvent()->subscribe([frame, this](View* view) {
+    this->clickSubscription = this->button->getClickEvent()->subscribe([frame, this](View* view) {
         if (!frame->isLastStage())
             frame->nextStage();
         else
@@ -44,6 +44,10 @@ ConfirmPage_AppUpdate::ConfirmPage_AppUpdate(brls::StagedAppletFrame* frame, con
 
 ConfirmPage_AmsUpdate::ConfirmPage_AmsUpdate(brls::StagedAppletFrame* frame, const std::string& text, bool erista) : ConfirmPage_Done(frame, text)
 {
+    // Unsubscribe the base class handler (nextStage/pushMainFrame) to prevent
+    // double-fire crash on the last stage (this is always the last stage).
+    this->button->getClickEvent()->unsubscribe(this->clickSubscription);
+
     this->button->getClickEvent()->subscribe([this, erista](View* view) {
         if (erista) {
             util::rebootToPayload(RCM_PAYLOAD_PATH);

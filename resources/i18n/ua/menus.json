@@ -79,7 +79,7 @@
     "continue": "Продовжити",
     "download": "Завантаження:\n",
     "start_download": "Завантажити",
-    "low_fw_warning": "WARNING!!!\n\nПри пониженні версії системного ПЗ приставка може не завантажуватися,\nдоки не буде скинута до заводських налаштувань. Це можна зробити через\n'hekate > Payloads > TegraExplorer',\n обравши скрипт 'SD:/congig/DowngradeFix.te',\nабо вручну за відеоінструкцією: https://bit.ly/fw_downgrade\n\n",
+    "low_fw_warning": "WARNING!!!\n\nПри пониженні версії системного ПЗ приставка може не завантажуватися,\nдоки не буде скинута до заводських налаштувань. Це можна зробити через\n'hekate > Payloads > TegraExplorer > DowngradeFix.te',\nабо вручну за відеоінструкцією: https://bit.ly/fw_downgrade\n\n",
     "from": "\n\nДжерело:\n",
     "ok": "ОК",
     "shut_down": "Вимкнення",
@@ -94,7 +94,9 @@
     "nothing_to_see": "Оновлення не знайдено!"
   },
   "changelog": {
-    "changelog": "Зміни"
+    "changelog": "Зміни",
+    "review_before_update": "Будь ласка, ознайомтесь зі списком змін Kefir перед тим, як переходити до оновлення",
+    "proceed_to_update": "Перейти до оновлення"
   },
   "sigpatches": {
     "reboot": "Зміни набудуть чинності після перезавантаження приставки."

@@ -3,7 +3,9 @@
 #include <filesystem>
 #include <iostream>
 #include <string>
+#include <regex>
 
+#include "changelog_page.hpp"
 #include "confirm_page.hpp"
 #include "current_cfw.hpp"
 #include "dialogue_page.hpp"
@@ -55,8 +57,23 @@ void AmsTab::CreateStagedFrames(const std::string& text, const std::string& url,
 {
     brls::StagedAppletFrame* stagedFrame = new brls::StagedAppletFrame();
     stagedFrame->setTitle(this->type == contentType::ams_cfw ? "menus/ams_update/getting_ams"_i18n : "menus/ams_update/custom_download"_i18n);
-    stagedFrame->addStage(
-        new ConfirmPage(stagedFrame, text));
+
+    // NEW STAGE: Show Kefir ChangeLog before updating
+    if (ams) {
+        // Read clean Kefir version (just the number, e.g. "814")
+        std::string currentVersion = fs::readLine("/switch/kefir-updater/version");
+
+        // Extract target version from the download URL
+        std::string targetVersion = extractVersionFromUrl(url);
+
+        stagedFrame->addStage(new ChangelogPage_Kefir(stagedFrame, currentVersion, targetVersion));
+    }
+    else {
+        // Для не-AMS оновлень показуємо звичайне вікно підтвердження
+        stagedFrame->addStage(
+            new ConfirmPage(stagedFrame, text));
+    }
+
     stagedFrame->addStage(
         new WorkerPage(stagedFrame, "menus/common/downloading"_i18n, [&, url]() { util::downloadArchive(url, this->type); }));
     stagedFrame->addStage(
@@ -74,6 +91,40 @@ void AmsTab::CreateStagedFrames(const std::string& text, const std::string& url,
     else
         stagedFrame->addStage(new ConfirmPage_Done(stagedFrame, "menus/kefir/all_done"_i18n));
     brls::Application::pushView(stagedFrame);
+}
+
+std::string AmsTab::extractVersionFromUrl(const std::string& url)
+{
+    // Debug: показати URL
+    brls::Logger::info("extractVersionFromUrl: URL = {}", url);
+
+    // Шукаємо паттерн /download/{version}/
+    std::regex versionRegex(R"(/download/(\d+)/)");
+    std::smatch match;
+    if (std::regex_search(url, match, versionRegex) && match.size() > 1) {
+        std::string version = match[1].str();
+        brls::Logger::info("extractVersionFromUrl: Found version = {}", version);
+        return version;
+    }
+
+    // Спробуємо інший паттерн: kefir_{version}.zip
+    std::regex versionRegex2(R"(kefir_(\d+)\.zip)");
+    if (std::regex_search(url, match, versionRegex2) && match.size() > 1) {
+        std::string version = match[1].str();
+        brls::Logger::info("extractVersionFromUrl: Found version (pattern 2) = {}", version);
+        return version;
+    }
+
+    // Спробуємо ще один паттерн: просто число в URL
+    std::regex versionRegex3(R"(/(\d{3,4})[/\.]?)");
+    if (std::regex_search(url, match, versionRegex3) && match.size() > 1) {
+        std::string version = match[1].str();
+        brls::Logger::info("extractVersionFromUrl: Found version (pattern 3) = {}", version);
+        return version;
+    }
+
+    brls::Logger::warning("extractVersionFromUrl: Could not extract version from URL");
+    return "";
 }
 
 AmsTab_Regular::AmsTab_Regular(const nlohmann::ordered_json& nxlinks, const bool erista) : AmsTab(nxlinks, erista)

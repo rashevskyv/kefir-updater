@@ -95,10 +95,12 @@
     "missing": "Missing",
     "applet_mode_not_supported": "This feature isn't available in applet mode. Please launch AIO-Switch-Updater-Reborn through title override to access it.",
     "nothing_to_see": "Nothing to see here!",
-    "low_fw_warning": "WARNING!!!\n\nDowngrading system firmware may prevent the console from booting until a factory reset is performed. This can be done via\n`hekate > Payloads > TegraExplorer`,\nby selecting the script at `SD:/config/DowngradeFix.te`/,\nor manually by following the video guide: https://bit.ly/fw_downgrade\n\n"
+    "low_fw_warning": "WARNING!!!\n\nDowngrading system firmware may prevent the console from booting until a factory reset is performed. This can be done via\n`hekate > Payloads > TegraExplorer > DowngradeFix.te`/,\nor manually by following the video guide: https://bit.ly/fw_downgrade\n\n"
   },
   "changelog": {
-    "changelog": "Changelog"
+    "changelog": "Changelog",
+    "review_before_update": "Please review the Kefir changelog before proceeding to update",
+    "proceed_to_update": "Proceed to update"
   },
   "payloads": {
     "dl_payloads": "Download payloads",
