@@ -1,5 +1,6 @@
 #include "changelog_page.hpp"
 
+#include <fstream>
 #include "utils.hpp"
 
 namespace i18n = brls::i18n;
@@ -288,4 +289,191 @@ void ChangelogPage::ShowChangelogContent(const std::string version, const std::s
         brls::PopupFrame::open(version, appView, "", "");
     });
     list->addView(listItem);
+}
+
+// ChangelogPage_Kefir implementation
+ChangelogPage_Kefir::ChangelogPage_Kefir(brls::StagedAppletFrame* frame, const std::string& currentVersion, const std::string& targetVersion, const std::string& url)
+{
+    // Log debug info to file only (not shown in UI)
+    std::ofstream logFile("/config/kefir-updater/changelog_debug.log", std::ios::app);
+    logFile << "=== ChangelogPage_Kefir Debug ===" << std::endl;
+    logFile << "Current version raw: " << currentVersion << std::endl;
+    logFile << "Target version raw: " << targetVersion << std::endl;
+    logFile << "URL: " << url << std::endl;
+
+    // Create warning label
+    this->warningLabel = new brls::Label(
+        brls::LabelStyle::REGULAR,
+        "menus/changelog/review_before_update"_i18n,
+        true
+    );
+    this->warningLabel->setHorizontalAlign(NVG_ALIGN_CENTER);
+    this->warningLabel->setParent(this);
+
+    // Create changelog list
+    this->changelogList = new brls::List();
+
+    // Parse versions: take only the leading digits (e.g. "814" from "814;\n AMS:1.7")
+    int currentVer = parseKefirVersion(currentVersion);
+    int targetVer  = parseKefirVersion(targetVersion);
+
+    logFile << "Parsed current: " << currentVer << std::endl;
+    logFile << "Parsed target: " << targetVer << std::endl;
+
+    bool foundAny = false;
+
+    if (targetVer == 0) {
+        brls::Label* errorLabel = new brls::Label(
+            brls::LabelStyle::DESCRIPTION,
+            "Could not determine target version.",
+            true
+        );
+        this->changelogList->addView(errorLabel);
+        logFile << "ERROR: Target version is 0" << std::endl;
+    } else if (currentVer >= targetVer) {
+        brls::Label* upToDateLabel = new brls::Label(
+            brls::LabelStyle::DESCRIPTION,
+            "No changelog entries between versions.",
+            true
+        );
+        this->changelogList->addView(upToDateLabel);
+        logFile << "No versions to iterate (current >= target)" << std::endl;
+    } else {
+        logFile << "Looping from " << (currentVer + 1) << " to " << targetVer << std::endl;
+        for (int ver = currentVer + 1; ver <= targetVer; ver++) {
+            std::string versionStr = std::to_string(ver);
+            std::string changelogUrl = "https://github.com/rashevskyv/kefir/releases/download/" + versionStr + "/changelog";
+
+            logFile << "Trying: " << changelogUrl << std::endl;
+
+            std::string changelogText = util::downloadFileToString(changelogUrl);
+            logFile << "Got " << changelogText.length() << " bytes" << std::endl;
+
+            if (!changelogText.empty()) {
+                foundAny = true;
+
+                // Version header
+                brls::Label* versionLabel = new brls::Label(
+                    brls::LabelStyle::MEDIUM,
+                    "Kefir " + versionStr,
+                    true
+                );
+                this->changelogList->addView(versionLabel);
+
+                // Changelog text
+                brls::Label* changelogLabel = new brls::Label(
+                    brls::LabelStyle::DESCRIPTION,
+                    changelogText,
+                    true
+                );
+                this->changelogList->addView(changelogLabel);
+
+                // Separator
+                this->changelogList->addView(new brls::Label(brls::LabelStyle::SMALL, "─────────────────────────────", true));
+            }
+        }
+
+        if (!foundAny) {
+            brls::Label* noChangeLabel = new brls::Label(
+                brls::LabelStyle::DESCRIPTION,
+                "No changelogs found for this update range.",
+                true
+            );
+            this->changelogList->addView(noChangeLabel);
+        }
+    }
+
+    logFile << "=== End Debug ==" << std::endl << std::endl;
+    logFile.close();
+
+    // Create ScrollView
+    this->scrollView = new brls::ScrollView();
+    this->scrollView->setContentView(this->changelogList);
+    this->scrollView->setParent(this);
+
+    // Create button
+    this->button = (new brls::Button(brls::ButtonStyle::PRIMARY))
+        ->setLabel("menus/changelog/proceed_to_update"_i18n);
+    this->button->setParent(this);
+    this->button->getClickEvent()->subscribe([frame](View* view) {
+        if (!frame->isLastStage())
+            frame->nextStage();
+    });
+}
+
+ChangelogPage_Kefir::~ChangelogPage_Kefir()
+{
+    delete this->warningLabel;
+    delete this->scrollView;  // ScrollView destructor already deletes changelogList
+    // changelogList is owned (and deleted) by scrollView — do NOT delete it here
+    delete this->button;
+}
+
+void ChangelogPage_Kefir::draw(NVGcontext* vg, int x, int y, unsigned width, unsigned height, brls::Style* style, brls::FrameContext* ctx)
+{
+    this->warningLabel->frame(ctx);
+    this->scrollView->frame(ctx);
+    this->button->frame(ctx);
+}
+
+brls::View* ChangelogPage_Kefir::getDefaultFocus()
+{
+    return this->button;
+}
+
+void ChangelogPage_Kefir::layout(NVGcontext* vg, brls::Style* style, brls::FontStash* stash)
+{
+    // Warning label at top
+    this->warningLabel->setWidth(this->width * 0.9f);
+    this->warningLabel->invalidate(true);
+    this->warningLabel->setBoundaries(
+        this->x + this->width * 0.05f,
+        this->y + 50,
+        this->warningLabel->getWidth(),
+        this->warningLabel->getHeight()
+    );
+
+    // ScrollView in the middle
+    int scrollViewY = this->y + 50 + this->warningLabel->getHeight() + 20;
+    int scrollViewHeight = this->height - scrollViewY - style->CrashFrame.buttonHeight - 100;
+    this->scrollView->setBoundaries(
+        this->x + 50,
+        scrollViewY,
+        this->width - 100,
+        scrollViewHeight
+    );
+    this->scrollView->invalidate(true);
+
+    // Button at the bottom
+    this->button->setBoundaries(
+        this->x + this->width / 2 - style->CrashFrame.buttonWidth / 2,
+        this->y + this->height - style->CrashFrame.buttonHeight - 50,
+        style->CrashFrame.buttonWidth,
+        style->CrashFrame.buttonHeight
+    );
+    this->button->invalidate();
+}
+
+int ChangelogPage_Kefir::parseKefirVersion(const std::string& version)
+{
+    // The version file contains e.g. "814" or "814;\n\ue016 Atmosphere: 1.7.0"
+    // We want only the leading integer (stop at first non-digit after we've seen digits).
+    std::string numOnly;
+    for (char c : version) {
+        if (std::isdigit(c)) {
+            numOnly += c;
+        } else if (!numOnly.empty()) {
+            // Stop at first non-digit after collecting digits
+            break;
+        }
+    }
+    if (numOnly.empty()) return 0;
+    try { return std::stoi(numOnly); }
+    catch (...) { return 0; }
+}
+
+// Backward compat alias
+int ChangelogPage_Kefir::parseVersion(const std::string& version)
+{
+    return parseKefirVersion(version);
 }
