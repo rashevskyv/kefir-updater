@@ -336,9 +336,13 @@ class RichTextLabel : public brls::View
         nvgTextAlign(vg, NVG_ALIGN_LEFT | NVG_ALIGN_TOP);
         if (doRender) nvgFillColor(vg, color);
 
-        float spBounds[4];
-        nvgTextBounds(vg, 0, 0, " ", nullptr, spBounds);
-        float spaceW = spBounds[2] - spBounds[0];
+        // nvgTextBounds(" ") returns 0 because spaces have no visual extent in NVG.
+        // Measure the actual advance by subtracting "ab" width from "a b" width.
+        float wAB[4], wA_B[4];
+        nvgTextBounds(vg, 0, 0, "ab",  nullptr, wAB);
+        nvgTextBounds(vg, 0, 0, "a b", nullptr, wA_B);
+        float spaceW = (wA_B[2] - wA_B[0]) - (wAB[2] - wAB[0]);
+        if (spaceW < 1.0f) spaceW = fsz * 0.28f; // fallback (~1/3 em)
 
         float curX = bx, curY = by;
         bool lineStart = true;
