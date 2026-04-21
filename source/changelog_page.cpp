@@ -416,7 +416,7 @@ public:
     {
         if (this->width == 0 || segs.empty()) { this->height = 0; return; }
 
-        float fsz      = (float)style->Label.descriptionFontSize;
+        float fsz      = (float)style->Label.regularFontSize;
         float pixLineH = fsz * style->Label.lineHeight;
 
         nvgSave(vg);
@@ -433,7 +433,7 @@ public:
     {
         if (segs.empty()) return;
 
-        float fsz      = (float)style->Label.descriptionFontSize;
+        float fsz      = (float)style->Label.regularFontSize;
         float pixLineH = fsz * style->Label.lineHeight;
         NVGcolor color = a(ctx->theme->textColor);
 
