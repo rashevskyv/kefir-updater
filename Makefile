@@ -22,7 +22,7 @@ DATA		:=	data
 INCLUDES	:=	include /lib/borealis/library/include/borealis/extern/nlohmann
 APP_TITLE	:=	Kefir Updater
 APP_AUTHOR	:=	HamletDuFromage, forked by xHR
-APP_VERSION :=  2.26
+APP_VERSION :=  2.28
 TARGET		:=	$(notdir $(CURDIR))
 
 ROMFS				:=	resources

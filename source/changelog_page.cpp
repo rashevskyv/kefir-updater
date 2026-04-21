@@ -299,7 +299,6 @@ ChangelogPage_Kefir::ChangelogPage_Kefir(brls::StagedAppletFrame* frame, const s
     logFile << "=== ChangelogPage_Kefir Debug ===" << std::endl;
     logFile << "Current version raw: " << currentVersion << std::endl;
     logFile << "Target version raw: " << targetVersion << std::endl;
-    logFile << "URL: " << url << std::endl;
 
     // Create warning label
     this->warningLabel = new brls::Label(
@@ -310,10 +309,11 @@ ChangelogPage_Kefir::ChangelogPage_Kefir(brls::StagedAppletFrame* frame, const s
     this->warningLabel->setHorizontalAlign(NVG_ALIGN_CENTER);
     this->warningLabel->setParent(this);
 
-    // Create changelog list
+    // Create changelog list (brls::List is already a ScrollView — no outer wrapper needed)
     this->changelogList = new brls::List();
+    this->changelogList->setParent(this);
 
-    // Parse versions: take only the leading digits (e.g. "814" from "814;\n AMS:1.7")
+    // Parse versions: take only the leading digits
     int currentVer = parseKefirVersion(currentVersion);
     int targetVer  = parseKefirVersion(targetVersion);
 
@@ -323,19 +323,11 @@ ChangelogPage_Kefir::ChangelogPage_Kefir(brls::StagedAppletFrame* frame, const s
     bool foundAny = false;
 
     if (targetVer == 0) {
-        brls::Label* errorLabel = new brls::Label(
-            brls::LabelStyle::DESCRIPTION,
-            "Could not determine target version.",
-            true
-        );
+        auto* errorLabel = new brls::Label(brls::LabelStyle::DESCRIPTION, "Could not determine target version.", true);
         this->changelogList->addView(errorLabel);
         logFile << "ERROR: Target version is 0" << std::endl;
     } else if (currentVer >= targetVer) {
-        brls::Label* upToDateLabel = new brls::Label(
-            brls::LabelStyle::DESCRIPTION,
-            "No changelog entries between versions.",
-            true
-        );
+        auto* upToDateLabel = new brls::Label(brls::LabelStyle::DESCRIPTION, "No changelog entries between versions.", true);
         this->changelogList->addView(upToDateLabel);
         logFile << "No versions to iterate (current >= target)" << std::endl;
     } else {
@@ -353,43 +345,26 @@ ChangelogPage_Kefir::ChangelogPage_Kefir(brls::StagedAppletFrame* frame, const s
                 foundAny = true;
 
                 // Version header
-                brls::Label* versionLabel = new brls::Label(
-                    brls::LabelStyle::MEDIUM,
-                    "Kefir " + versionStr,
-                    true
-                );
+                auto* versionLabel = new brls::Label(brls::LabelStyle::MEDIUM, "Kefir " + versionStr, true);
                 this->changelogList->addView(versionLabel);
 
                 // Changelog text
-                brls::Label* changelogLabel = new brls::Label(
-                    brls::LabelStyle::DESCRIPTION,
-                    changelogText,
-                    true
-                );
+                auto* changelogLabel = new brls::Label(brls::LabelStyle::DESCRIPTION, changelogText, true);
                 this->changelogList->addView(changelogLabel);
 
                 // Separator
-                this->changelogList->addView(new brls::Label(brls::LabelStyle::SMALL, "─────────────────────────────", true));
+                this->changelogList->addView(new brls::Label(brls::LabelStyle::SMALL, "\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015", true));
             }
         }
 
         if (!foundAny) {
-            brls::Label* noChangeLabel = new brls::Label(
-                brls::LabelStyle::DESCRIPTION,
-                "No changelogs found for this update range.",
-                true
-            );
+            auto* noChangeLabel = new brls::Label(brls::LabelStyle::DESCRIPTION, "No changelogs found for this update range.", true);
             this->changelogList->addView(noChangeLabel);
         }
     }
 
     logFile << "=== End Debug ==" << std::endl << std::endl;
     logFile.close();
-
-    // Create ScrollView
-    this->scrollView = new brls::ScrollView();
-    this->scrollView->setContentView(this->changelogList);
-    this->scrollView->setParent(this);
 
     // Create button
     this->button = (new brls::Button(brls::ButtonStyle::PRIMARY))
@@ -404,15 +379,24 @@ ChangelogPage_Kefir::ChangelogPage_Kefir(brls::StagedAppletFrame* frame, const s
 ChangelogPage_Kefir::~ChangelogPage_Kefir()
 {
     delete this->warningLabel;
-    delete this->scrollView;  // ScrollView destructor already deletes changelogList
-    // changelogList is owned (and deleted) by scrollView — do NOT delete it here
+    delete this->changelogList;  // List (ScrollView) deletes its own children
     delete this->button;
+}
+
+void ChangelogPage_Kefir::willAppear(bool resetState)
+{
+    this->changelogList->willAppear(resetState);
+}
+
+void ChangelogPage_Kefir::willDisappear(bool resetState)
+{
+    this->changelogList->willDisappear(resetState);
 }
 
 void ChangelogPage_Kefir::draw(NVGcontext* vg, int x, int y, unsigned width, unsigned height, brls::Style* style, brls::FrameContext* ctx)
 {
     this->warningLabel->frame(ctx);
-    this->scrollView->frame(ctx);
+    this->changelogList->frame(ctx);
     this->button->frame(ctx);
 }
 
@@ -428,30 +412,35 @@ void ChangelogPage_Kefir::layout(NVGcontext* vg, brls::Style* style, brls::FontS
     this->warningLabel->invalidate(true);
     this->warningLabel->setBoundaries(
         this->x + this->width * 0.05f,
-        this->y + 50,
+        this->y + 20,
         this->warningLabel->getWidth(),
         this->warningLabel->getHeight()
     );
 
-    // ScrollView in the middle
-    int scrollViewY = this->y + 50 + this->warningLabel->getHeight() + 20;
-    int scrollViewHeight = this->height - scrollViewY - style->CrashFrame.buttonHeight - 100;
-    this->scrollView->setBoundaries(
-        this->x + 50,
-        scrollViewY,
-        this->width - 100,
-        scrollViewHeight
-    );
-    this->scrollView->invalidate(true);
-
     // Button at the bottom
+    unsigned btnW = style->CrashFrame.buttonWidth;
+    unsigned btnH = style->CrashFrame.buttonHeight;
     this->button->setBoundaries(
-        this->x + this->width / 2 - style->CrashFrame.buttonWidth / 2,
-        this->y + this->height - style->CrashFrame.buttonHeight - 50,
-        style->CrashFrame.buttonWidth,
-        style->CrashFrame.buttonHeight
+        this->x + this->width / 2 - btnW / 2,
+        this->y + this->height - btnH - 20,
+        btnW,
+        btnH
     );
     this->button->invalidate();
+
+    // Changelog list fills the space between label and button
+    int listTop = this->y + 20 + (int)this->warningLabel->getHeight() + 10;
+    int listBot = (int)(this->y + this->height - btnH - 20) - 10;
+    int listHeight = listBot - listTop;
+    if (listHeight < 0) listHeight = 0;
+
+    this->changelogList->setBoundaries(
+        this->x + 20,
+        listTop,
+        this->width - 40,
+        (unsigned)listHeight
+    );
+    this->changelogList->invalidate(true);
 }
 
 int ChangelogPage_Kefir::parseKefirVersion(const std::string& version)
@@ -463,7 +452,6 @@ int ChangelogPage_Kefir::parseKefirVersion(const std::string& version)
         if (std::isdigit(c)) {
             numOnly += c;
         } else if (!numOnly.empty()) {
-            // Stop at first non-digit after collecting digits
             break;
         }
     }
@@ -477,3 +465,4 @@ int ChangelogPage_Kefir::parseVersion(const std::string& version)
 {
     return parseKefirVersion(version);
 }
+
