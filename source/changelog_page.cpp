@@ -366,14 +366,28 @@ ChangelogPage_Kefir::ChangelogPage_Kefir(brls::StagedAppletFrame* frame, const s
     logFile << "=== End Debug ==" << std::endl << std::endl;
     logFile.close();
 
-    // Create button
+    // Create button — starts DISABLED until the user scrolls to the bottom
     this->button = (new brls::Button(brls::ButtonStyle::PRIMARY))
         ->setLabel("menus/changelog/proceed_to_update"_i18n);
+    this->button->setState(brls::ButtonState::DISABLED);
     this->button->setParent(this);
-    this->button->getClickEvent()->subscribe([frame](View* view) {
+    this->button->getClickEvent()->subscribe([frame, this](View* view) {
+        if (!this->buttonEnabled) return; // still locked
         if (!frame->isLastStage())
             frame->nextStage();
     });
+
+    // D-pad UP → scroll changelog list up by 80 pixels
+    this->registerAction("", brls::Key::DUP, [this] {
+        this->changelogList->scrollBy(-80);
+        return true; // consume key, don't move focus
+    }, true);
+
+    // D-pad DOWN → scroll changelog list down by 80 pixels
+    this->registerAction("", brls::Key::DDOWN, [this] {
+        this->changelogList->scrollBy(80);
+        return true;
+    }, true);
 }
 
 ChangelogPage_Kefir::~ChangelogPage_Kefir()
@@ -395,6 +409,12 @@ void ChangelogPage_Kefir::willDisappear(bool resetState)
 
 void ChangelogPage_Kefir::draw(NVGcontext* vg, int x, int y, unsigned width, unsigned height, brls::Style* style, brls::FrameContext* ctx)
 {
+    // Check every frame whether the list has been scrolled to the bottom
+    if (!this->buttonEnabled && this->changelogList->isAtBottom()) {
+        this->buttonEnabled = true;
+        this->button->setState(brls::ButtonState::ENABLED);
+    }
+
     this->warningLabel->frame(ctx);
     this->changelogList->frame(ctx);
     this->button->frame(ctx);

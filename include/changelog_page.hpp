@@ -21,6 +21,9 @@ protected:
     brls::List* changelogList = nullptr;
     // Note: no outer scrollView — brls::List IS already a ScrollView
 
+    bool buttonEnabled = false; // unlocked once user scrolls to the bottom
+
+
     int parseKefirVersion(const std::string& version);
     int parseVersion(const std::string& version);  // backward compat alias
 
