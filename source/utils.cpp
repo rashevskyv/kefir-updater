@@ -128,9 +128,45 @@ namespace util {
                             if (logging) logFile << "Temp file already doesn't exist" << std::endl;
                         }
                     } else {
+                        // Download successful - rename temp to final immediately
                         if (logging) {
                             logFile << "Download SUCCESS (status == 200)" << std::endl;
-                            logFile << "Temp file ready for installation" << std::endl;
+                            logFile << "Starting immediate rename..." << std::endl;
+                        }
+
+                        if (std::filesystem::exists(APP_FILENAME_TEMP)) {
+                            if (std::filesystem::exists(APP_FILENAME)) {
+                                if (logging) logFile << "DELETING old file: " << APP_FILENAME << std::endl;
+                                std::filesystem::remove(APP_FILENAME);
+                            }
+
+                            if (logging) {
+                                logFile << "RENAMING:" << std::endl;
+                                logFile << "  FROM: " << APP_FILENAME_TEMP << std::endl;
+                                logFile << "  TO:   " << APP_FILENAME << std::endl;
+                            }
+                            std::filesystem::rename(APP_FILENAME_TEMP, APP_FILENAME);
+
+                            if (logging) {
+                                logFile << "Rename completed" << std::endl;
+                                if (std::filesystem::exists(APP_FILENAME)) {
+                                    auto finalSize = std::filesystem::file_size(APP_FILENAME);
+                                    logFile << "Final file size: " << finalSize << " bytes (" << (finalSize / 1024.0 / 1024.0) << " MB)" << std::endl;
+                                }
+                            }
+
+                            // Copy forwarder
+                            if (logging) {
+                                logFile << "Copying forwarder:" << std::endl;
+                                logFile << "  FROM: " << ROMFS_FORWARDER << std::endl;
+                                logFile << "  TO:   " << FORWARDER_PATH << std::endl;
+                            }
+                            fs::copyFile(ROMFS_FORWARDER, FORWARDER_PATH);
+                            if (logging) logFile << "Forwarder copied successfully" << std::endl;
+                        }
+
+                        if (logging) {
+                            logFile << "DBI installation complete" << std::endl;
                             logFile << "========================================" << std::endl;
                         }
                     }
@@ -331,71 +367,9 @@ namespace util {
                 if (std::filesystem::exists(FIRMWARE_FILENAME)) std::filesystem::remove(FIRMWARE_FILENAME);
                 break;
             case contentType::app:
-                {
-                    if (logging) {
-                        logFile << "========================================" << std::endl;
-                        logFile << "=== DBI Installation/Rename Start ===" << std::endl;
-                        logFile << "Temp file path: " << APP_FILENAME_TEMP << std::endl;
-                        logFile << "Final file path: " << APP_FILENAME << std::endl;
-                        logFile << "Temp file exists: " << std::filesystem::exists(APP_FILENAME_TEMP) << std::endl;
-                        logFile << "Old file exists: " << std::filesystem::exists(APP_FILENAME) << std::endl;
-
-                        if (std::filesystem::exists(APP_FILENAME_TEMP)) {
-                            auto tempSize = std::filesystem::file_size(APP_FILENAME_TEMP);
-                            logFile << "Temp file size BEFORE rename: " << tempSize << " bytes (" << (tempSize / 1024.0 / 1024.0) << " MB)" << std::endl;
-                        }
-                        if (std::filesystem::exists(APP_FILENAME)) {
-                            auto oldSize = std::filesystem::file_size(APP_FILENAME);
-                            logFile << "Old file size BEFORE deletion: " << oldSize << " bytes (" << (oldSize / 1024.0 / 1024.0) << " MB)" << std::endl;
-                        }
-                    }
-
-                    // Rename temp file to final location
-                    if (std::filesystem::exists(APP_FILENAME_TEMP)) {
-                        if (logging) logFile << "Starting rename process..." << std::endl;
-
-                        if (std::filesystem::exists(APP_FILENAME)) {
-                            if (logging) {
-                                logFile << "DELETING old file: " << APP_FILENAME << std::endl;
-                            }
-                            std::filesystem::remove(APP_FILENAME);
-                            if (logging) logFile << "Old file deleted successfully: " << !std::filesystem::exists(APP_FILENAME) << std::endl;
-                        }
-
-                        if (logging) {
-                            logFile << "RENAMING:" << std::endl;
-                            logFile << "  FROM: " << APP_FILENAME_TEMP << std::endl;
-                            logFile << "  TO:   " << APP_FILENAME << std::endl;
-                        }
-                        std::filesystem::rename(APP_FILENAME_TEMP, APP_FILENAME);
-                        if (logging) {
-                            logFile << "Rename completed" << std::endl;
-                            logFile << "Final file exists: " << std::filesystem::exists(APP_FILENAME) << std::endl;
-                            logFile << "Temp file exists after rename: " << std::filesystem::exists(APP_FILENAME_TEMP) << std::endl;
-
-                            if (std::filesystem::exists(APP_FILENAME)) {
-                                auto finalSize = std::filesystem::file_size(APP_FILENAME);
-                                logFile << "Final file size AFTER rename: " << finalSize << " bytes (" << (finalSize / 1024.0 / 1024.0) << " MB)" << std::endl;
-                            } else {
-                                logFile << "ERROR: Final file does not exist after rename!" << std::endl;
-                            }
-                        }
-                    } else {
-                        if (logging) logFile << "ERROR: Temp file does not exist, cannot rename!" << std::endl;
-                    }
-
-                    // Copy forwarder
-                    if (logging) {
-                        logFile << "Copying forwarder:" << std::endl;
-                        logFile << "  FROM: " << ROMFS_FORWARDER << std::endl;
-                        logFile << "  TO:   " << FORWARDER_PATH << std::endl;
-                    }
-                    fs::copyFile(ROMFS_FORWARDER, FORWARDER_PATH);
-                    if (logging) {
-                        logFile << "Forwarder copied successfully" << std::endl;
-                        logFile << "=== DBI Installation/Rename End ===" << std::endl;
-                        logFile << "========================================" << std::endl;
-                    }
+                // DBI installation is now handled in downloadArchive() immediately after download
+                if (logging) {
+                    logFile << "contentType::app - installation already completed in downloadArchive()" << std::endl;
                 }
                 break;
             case contentType::custom: {
