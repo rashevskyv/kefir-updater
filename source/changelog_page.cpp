@@ -945,6 +945,28 @@ ChangelogPage_Kefir::ChangelogPage_Kefir(brls::StagedAppletFrame* frame, const s
         this->changelogList->scrollBy(80);
         return true;
     }, true);
+
+    // LEFT / L → scroll up by one page (visible height)
+    this->registerAction("", brls::Key::LEFT, [this] {
+        this->changelogList->scrollBy(-(int)this->changelogList->getHeight());
+        return true;
+    }, true);
+
+    this->registerAction("", brls::Key::L, [this] {
+        this->changelogList->scrollBy(-(int)this->changelogList->getHeight());
+        return true;
+    }, true);
+
+    // RIGHT / R → scroll down by one page (visible height)
+    this->registerAction("", brls::Key::RIGHT, [this] {
+        this->changelogList->scrollBy((int)this->changelogList->getHeight());
+        return true;
+    }, true);
+
+    this->registerAction("", brls::Key::R, [this] {
+        this->changelogList->scrollBy((int)this->changelogList->getHeight());
+        return true;
+    }, true);
 }
 
 ChangelogPage_Kefir::~ChangelogPage_Kefir()
