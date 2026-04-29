@@ -154,15 +154,6 @@ namespace util {
                                     logFile << "Final file size: " << finalSize << " bytes (" << (finalSize / 1024.0 / 1024.0) << " MB)" << std::endl;
                                 }
                             }
-
-                            // Copy forwarder
-                            if (logging) {
-                                logFile << "Copying forwarder:" << std::endl;
-                                logFile << "  FROM: " << ROMFS_FORWARDER << std::endl;
-                                logFile << "  TO:   " << FORWARDER_PATH << std::endl;
-                            }
-                            fs::copyFile(ROMFS_FORWARDER, FORWARDER_PATH);
-                            if (logging) logFile << "Forwarder copied successfully" << std::endl;
                         }
 
                         if (logging) {
