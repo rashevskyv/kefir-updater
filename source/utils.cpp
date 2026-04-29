@@ -487,6 +487,21 @@ namespace util {
     {
         nlohmann::ordered_json tag;
         download::getRequest(url, tag, {"accept: application/vnd.github.v3+json"});
+
+        if (util::isDebugLoggingEnabled()) {
+            std::ofstream logFile(DEBUG_LOG_FILE, std::ios::app);
+            logFile << "=== getLatestTag ===" << std::endl;
+            logFile << "URL: " << url << std::endl;
+            logFile << "Response contains tag_name: " << (tag.find("tag_name") != tag.end()) << std::endl;
+            if (tag.find("tag_name") != tag.end()) {
+                logFile << "tag_name value: " << tag["tag_name"] << std::endl;
+            } else {
+                logFile << "Full response: " << tag.dump(2) << std::endl;
+            }
+            logFile << "===================" << std::endl << std::endl;
+            logFile.close();
+        }
+
         if (tag.find("tag_name") != tag.end())
             return tag["tag_name"];
         else
