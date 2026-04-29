@@ -306,35 +306,139 @@ void ChangelogPage::ShowChangelogContent(const std::string version, const std::s
 // bold is simulated by drawing each glyph twice with a 0.5 px x-offset.
 class RichTextLabel : public brls::View
 {
-    struct Seg { std::string text; bool bold; };
+    enum class Color { Normal, Gray, Red };
+    struct Seg { std::string text; bool bold; Color color; };
     std::vector<Seg> segs;
+    float fontSize = 0.0f; // 0 = use style default
 
     void parse(const std::string& richText)
     {
         bool isBold = false;
+        Color currentColor = Color::Normal;
         std::string cur;
+
         for (size_t i = 0; i < richText.size(); ) {
+            // Check for **bold**
             if (i + 1 < richText.size() && richText[i] == '*' && richText[i+1] == '*') {
-                if (!cur.empty()) { segs.push_back({cur, isBold}); cur.clear(); }
+                if (!cur.empty()) { segs.push_back({cur, isBold, currentColor}); cur.clear(); }
                 isBold = !isBold;
                 i += 2;
-            } else {
+            }
+            // Check for [text] - brackets white, content inside is gray (but can be bold too)
+            else if (richText[i] == '[') {
+                if (!cur.empty()) { segs.push_back({cur, isBold, currentColor}); cur.clear(); }
+
+                size_t end = richText.find(']', i + 1);
+                if (end != std::string::npos) {
+                    // Add opening bracket (normal color, not gray)
+                    segs.push_back({"[", false, Color::Normal});
+
+                    // Parse content with ** support, but force gray color
+                    std::string bracketContent = richText.substr(i + 1, end - i - 1);
+                    bool innerBold = false;
+                    std::string innerCur;
+                    for (size_t j = 0; j < bracketContent.size(); ) {
+                        if (j + 1 < bracketContent.size() && bracketContent[j] == '*' && bracketContent[j+1] == '*') {
+                            if (!innerCur.empty()) {
+                                segs.push_back({innerCur, innerBold, Color::Gray});
+                                innerCur.clear();
+                            }
+                            innerBold = !innerBold;
+                            j += 2;
+                        } else {
+                            innerCur += bracketContent[j++];
+                        }
+                    }
+                    if (!innerCur.empty()) segs.push_back({innerCur, innerBold, Color::Gray});
+
+                    // Add closing bracket (normal color, not gray)
+                    segs.push_back({"]", false, Color::Normal});
+
+                    i = end + 1;
+                } else {
+                    cur += richText[i++];
+                }
+            }
+            // Check for 'text' at word start - everything inside is gray
+            else if (richText[i] == '\'' && (i == 0 || richText[i-1] == ' ' || richText[i-1] == '\n' || richText[i-1] == '\t')) {
+                if (!cur.empty()) { segs.push_back({cur, isBold, currentColor}); cur.clear(); }
+
+                size_t end = richText.find('\'', i + 1);
+                if (end != std::string::npos) {
+                    // Add opening quote (gray)
+                    segs.push_back({"'", false, Color::Gray});
+                    // Add content (gray, can be bold)
+                    std::string quoteContent = richText.substr(i + 1, end - i - 1);
+                    bool innerBold = false;
+                    std::string innerCur;
+                    for (size_t j = 0; j < quoteContent.size(); ) {
+                        if (j + 1 < quoteContent.size() && quoteContent[j] == '*' && quoteContent[j+1] == '*') {
+                            if (!innerCur.empty()) {
+                                segs.push_back({innerCur, innerBold, Color::Gray});
+                                innerCur.clear();
+                            }
+                            innerBold = !innerBold;
+                            j += 2;
+                        } else {
+                            innerCur += quoteContent[j++];
+                        }
+                    }
+                    if (!innerCur.empty()) segs.push_back({innerCur, innerBold, Color::Gray});
+                    // Add closing quote (gray)
+                    segs.push_back({"'", false, Color::Gray});
+
+                    i = end + 1;
+                } else {
+                    cur += richText[i++];
+                }
+            }
+            // Check for `text` - everything inside is gray (monospace style)
+            else if (richText[i] == '`') {
+                if (!cur.empty()) { segs.push_back({cur, isBold, currentColor}); cur.clear(); }
+
+                size_t end = richText.find('`', i + 1);
+                if (end != std::string::npos) {
+                    // Add opening backtick (gray)
+                    segs.push_back({"`", false, Color::Gray});
+                    // Add content (gray)
+                    std::string backtickContent = richText.substr(i + 1, end - i - 1);
+                    segs.push_back({backtickContent, false, Color::Gray});
+                    // Add closing backtick (gray)
+                    segs.push_back({"`", false, Color::Gray});
+
+                    i = end + 1;
+                } else {
+                    cur += richText[i++];
+                }
+            }
+            // Check for {{red}}text{{/red}}
+            else if (i + 6 < richText.size() && richText.substr(i, 7) == "{{red}}") {
+                if (!cur.empty()) { segs.push_back({cur, isBold, currentColor}); cur.clear(); }
+                size_t end = richText.find("{{/red}}", i + 7);
+                if (end != std::string::npos) {
+                    std::string redText = richText.substr(i + 7, end - i - 7);
+                    segs.push_back({redText, isBold, Color::Red});
+                    i = end + 8;
+                } else {
+                    cur += richText[i++];
+                }
+            }
+            else {
                 cur += richText[i++];
             }
         }
-        if (!cur.empty()) segs.push_back({cur, isBold});
+        if (!cur.empty()) segs.push_back({cur, isBold, currentColor});
     }
 
     // Word-wrap pass. Returns total rendered height.
     // doRender=false → measure only; doRender=true → draw.
     float wrapPass(NVGcontext* vg, float bx, float by, float vw,
                    float fsz, float pixLineH, int font,
-                   NVGcolor color, bool doRender)
+                   NVGcolor normalColor, bool doRender)
     {
         nvgFontFaceId(vg, font);
         nvgFontSize(vg, fsz);
         nvgTextAlign(vg, NVG_ALIGN_LEFT | NVG_ALIGN_TOP);
-        if (doRender) nvgFillColor(vg, color);
 
         // nvgTextBounds(" ") returns 0 because spaces have no visual extent in NVG.
         // Measure the actual advance by subtracting "ab" width from "a b" width.
@@ -349,6 +453,7 @@ class RichTextLabel : public brls::View
         bool needsSpace = false;
         std::string wordBuf;
         bool wordBold = false;
+        Color wordColor = Color::Normal;
 
         auto flushWord = [&]() {
             if (wordBuf.empty()) return;
@@ -358,10 +463,10 @@ class RichTextLabel : public brls::View
             nvgFontSize(vg, fsz);
             nvgTextBounds(vg, 0, 0, wordBuf.c_str(), nullptr, bounds);
             float ww = bounds[2] - bounds[0];
-            float boldExtra = wordBold ? 0.5f : 0.0f;
+            float boldExtra = wordBold ? 1.0f : 0.0f;
             float sw = needsSpace ? spaceW : 0.0f;
 
-            // Wrap if word doesn’t fit
+            // Wrap if word doesn't fit
             if (!lineStart && curX + sw + ww + boldExtra > bx + vw) {
                 curX = bx;
                 curY += pixLineH;
@@ -369,16 +474,27 @@ class RichTextLabel : public brls::View
                 sw = 0.0f;
             }
 
-            if (doRender && !lineStart && sw > 0.0f)
+            if (doRender && !lineStart && sw > 0.0f) {
+                nvgFillColor(vg, normalColor);
                 nvgText(vg, curX, curY, " ", nullptr);
+            }
             curX += sw;
 
             if (doRender) {
+                // Set color based on wordColor
+                NVGcolor drawColor = normalColor;
+                if (wordColor == Color::Gray) {
+                    drawColor = nvgRGBA(128, 128, 128, 255); // Gray
+                } else if (wordColor == Color::Red) {
+                    drawColor = nvgRGBA(255, 80, 80, 255); // Red
+                }
+                nvgFillColor(vg, drawColor);
+
                 nvgFontFaceId(vg, font);
                 nvgFontSize(vg, fsz);
                 nvgText(vg, curX, curY, wordBuf.c_str(), nullptr);
-                if (wordBold) // bold simulation: second draw shifted 0.5 px
-                    nvgText(vg, curX + 0.5f, curY, wordBuf.c_str(), nullptr);
+                if (wordBold) // bold simulation: second draw shifted 1.0 px
+                    nvgText(vg, curX + 1.0f, curY, wordBuf.c_str(), nullptr);
             }
 
             curX += ww + boldExtra;
@@ -389,6 +505,7 @@ class RichTextLabel : public brls::View
 
         for (auto& seg : segs) {
             wordBold = seg.bold;
+            wordColor = seg.color;
             for (char c : seg.text) {
                 if (c == '\n') {
                     flushWord();
@@ -410,13 +527,13 @@ class RichTextLabel : public brls::View
     }
 
 public:
-    RichTextLabel(const std::string& richText) { parse(richText); }
+    RichTextLabel(const std::string& richText, float fontSize = 0.0f) : fontSize(fontSize) { parse(richText); }
 
     void layout(NVGcontext* vg, brls::Style* style, brls::FontStash* stash) override
     {
         if (this->width == 0 || segs.empty()) { this->height = 0; return; }
 
-        float fsz      = (float)style->Label.regularFontSize;
+        float fsz = (fontSize > 0.0f) ? fontSize : (float)style->Label.regularFontSize;
         float pixLineH = fsz * style->Label.lineHeight;
 
         nvgSave(vg);
@@ -433,7 +550,7 @@ public:
     {
         if (segs.empty()) return;
 
-        float fsz      = (float)style->Label.regularFontSize;
+        float fsz = (fontSize > 0.0f) ? fontSize : (float)style->Label.regularFontSize;
         float pixLineH = fsz * style->Label.lineHeight;
         NVGcolor color = a(ctx->theme->textColor);
 
@@ -512,43 +629,6 @@ static bool isFullBoldLine(const std::string& trimmed)
 // Non-version bold lines (summaries like **Full support 22.1.0**) are included
 // only when they appear before the first version-number marker (preamble) AND
 // the entire target version was found; otherwise they are also shown as-is.
-static std::string filterVersionSection(const std::string& section, int ver)
-{
-    std::string target = std::to_string(ver);
-    std::istringstream stream(section);
-    std::string line;
-    bool inTarget = false;
-    bool targetFound = false;
-    std::string result;
-
-    while (std::getline(stream, line)) {
-        if (!line.empty() && line.back() == '\r') line.pop_back();
-
-        size_t ns = line.find_first_not_of(" \t");
-        if (ns == std::string::npos) continue; // skip blank lines
-        std::string trimmed = line.substr(ns);
-
-        // Detect a version-number header like **814**
-        if (isFullBoldLine(trimmed)) {
-            std::string content = trimmed.substr(2, trimmed.size() - 4);
-            bool isVerNum = !content.empty() &&
-                            std::all_of(content.begin(), content.end(), ::isdigit);
-            if (isVerNum) {
-                // Start tracking only when we hit our target
-                inTarget = (content == target);
-                if (inTarget) targetFound = true;
-                continue; // Don’t emit the **NNN** line itself
-            }
-        }
-
-        if (inTarget)
-            result += line + "\n";
-    }
-
-    // Safety: if target version wasn’t found, fall back to full section
-    if (!targetFound) return section;
-    return result;
-}
 
 // Build a rich-text string for RichTextLabel from a filtered version section.
 // **bold** markers are PRESERVED; markdown links are stripped; backticks removed;
@@ -608,12 +688,10 @@ static std::string buildRichText(const std::string& section)
             processed = out;
         }
 
-        // Replace leading bullet * or - with •
-        if (!processed.empty() && (processed[0] == '*' || processed[0] == '-'))
-            processed = "\u2022" + processed.substr(1);
+        // Don't add bullet here - it will be added below for all lines
 
         if (!firstLine) result += '\n';
-        result += indentStr + processed;
+        result += "\u00A0\u00A0\u00A0\u00A0\u2022 " + indentStr + processed;
         firstLine = false;
     }
     return result;
@@ -623,7 +701,7 @@ static std::string buildRichText(const std::string& section)
 // ChangelogPage_Kefir implementation
 ChangelogPage_Kefir::ChangelogPage_Kefir(brls::StagedAppletFrame* frame, const std::string& currentVersion, const std::string& targetVersion, const std::string& url)
 {
-    // Log debug info to file only (not shown in UI)
+    // Log debug info
     std::ofstream logFile("/config/kefir-updater/changelog_debug.log", std::ios::app);
     logFile << "=== ChangelogPage_Kefir Debug ===" << std::endl;
     logFile << "Current version raw: " << currentVersion << std::endl;
@@ -638,80 +716,129 @@ ChangelogPage_Kefir::ChangelogPage_Kefir(brls::StagedAppletFrame* frame, const s
     this->warningLabel->setHorizontalAlign(NVG_ALIGN_CENTER);
     this->warningLabel->setParent(this);
 
-    // Create changelog list (brls::List is already a ScrollView — no outer wrapper needed)
+    // Create changelog list
     this->changelogList = new brls::List();
     this->changelogList->setParent(this);
 
-    // Parse versions: take only the leading digits
+    // Parse versions
     int currentVer = parseKefirVersion(currentVersion);
     int targetVer  = parseKefirVersion(targetVersion);
 
     logFile << "Parsed current: " << currentVer << std::endl;
     logFile << "Parsed target: " << targetVer << std::endl;
 
-    bool foundAny = false;
-
     if (targetVer == 0) {
         auto* errorLabel = new brls::Label(brls::LabelStyle::DESCRIPTION, "Could not determine target version.", true);
         this->changelogList->addView(errorLabel);
         logFile << "ERROR: Target version is 0" << std::endl;
-    } else if (currentVer >= targetVer) {
-        auto* upToDateLabel = new brls::Label(brls::LabelStyle::DESCRIPTION, "No changelog entries between versions.", true);
-        this->changelogList->addView(upToDateLabel);
-        logFile << "No versions to iterate (current >= target)" << std::endl;
     } else {
-        logFile << "Looping from " << (currentVer + 1) << " to " << targetVer << std::endl;
-        for (int ver = currentVer + 1; ver <= targetVer; ver++) {
-            std::string versionStr = std::to_string(ver);
-            std::string changelogUrl = "https://github.com/rashevskyv/kefir/releases/download/" + versionStr + "/changelog";
+        // Download the full changelog file
+        std::string changelogUrl = "https://raw.githubusercontent.com/rashevskyv/kefir/master/changelog_full";
+        logFile << "Downloading: " << changelogUrl << std::endl;
 
-            logFile << "Trying: " << changelogUrl << std::endl;
+        std::string changelogText = util::downloadFileToString(changelogUrl);
+        logFile << "Got " << changelogText.length() << " bytes" << std::endl;
 
-            std::string changelogText = util::downloadFileToString(changelogUrl);
-            logFile << "Got " << changelogText.length() << " bytes" << std::endl;
+        if (changelogText.empty()) {
+            auto* errorLabel = new brls::Label(brls::LabelStyle::DESCRIPTION, "Failed to download changelog.", true);
+            this->changelogList->addView(errorLabel);
+            logFile << "ERROR: Failed to download" << std::endl;
+        } else {
+            // Extract language section
+            bool ukrainian = isUkrainianLocale();
+            std::string section = extractChangelogSection(changelogText, ukrainian);
+            logFile << "Language: " << (ukrainian ? "ua" : "en") << ", section len: " << section.length() << std::endl;
 
-            if (!changelogText.empty()) {
-                foundAny = true;
+            // Parse the section into preamble + version blocks
+            std::string preamble;
+            std::vector<std::pair<int, std::string>> versionBlocks;
 
-                bool ukrainian = isUkrainianLocale();
-                std::string section = extractChangelogSection(changelogText, ukrainian);
+            std::istringstream stream(section);
+            std::string line;
+            bool inPreamble = true;
+            int currentBlock = -1;
+            std::string blockContent;
 
-                // Keep only entries for this specific version (the file is cumulative)
-                std::string filtered = filterVersionSection(section, ver);
-                logFile << "Language: " << (ukrainian ? "ua" : "en")
-                        << ", filtered len: " << filtered.size() << std::endl;
+            while (std::getline(stream, line)) {
+                if (!line.empty() && line.back() == '\r') line.pop_back();
 
-                if (!filtered.empty()) {
-                    // Version header ("Kefir 814")
-                    auto* verLabel = new brls::Label(brls::LabelStyle::MEDIUM, "Kefir " + versionStr, true);
-                    this->changelogList->addView(verLabel);
+                size_t ns = line.find_first_not_of(" \t");
+                if (ns == std::string::npos) continue;
+                std::string trimmed = line.substr(ns);
 
-                    // ONE RichTextLabel for all content (no inter-line borealis spacing)
-                    std::string richText = buildRichText(filtered);
-                    if (!richText.empty()) {
-                        auto* richLabel = new RichTextLabel(richText);
-                        this->changelogList->addView(richLabel);
+                // Check if this is a version marker: **814**
+                if (isFullBoldLine(trimmed)) {
+                    std::string content = trimmed.substr(2, trimmed.size() - 4);
+                    bool isVerNum = !content.empty() && std::all_of(content.begin(), content.end(), ::isdigit);
+
+                    if (isVerNum) {
+                        // Save previous block
+                        if (currentBlock != -1 && !blockContent.empty()) {
+                            versionBlocks.push_back({currentBlock, blockContent});
+                        }
+
+                        inPreamble = false;
+                        currentBlock = std::stoi(content);
+                        blockContent.clear();
+                        continue;
                     }
+                }
 
-                    // Visual separator
-                    this->changelogList->addView(new brls::Label(
-                        brls::LabelStyle::SMALL,
-                        "\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015",
-                        true));
+                // Add line to current section
+                if (inPreamble) {
+                    preamble += line + "\n";
+                } else if (currentBlock != -1) {
+                    blockContent += line + "\n";
                 }
             }
-        }
 
-        if (!foundAny) {
-            auto* noChangeLabel = new brls::Label(brls::LabelStyle::DESCRIPTION, "No changelogs found for this update range.", true);
-            this->changelogList->addView(noChangeLabel);
+            // Save last block
+            if (currentBlock != -1 && !blockContent.empty()) {
+                versionBlocks.push_back({currentBlock, blockContent});
+            }
+
+            logFile << "Preamble len: " << preamble.length() << ", version blocks: " << versionBlocks.size() << std::endl;
+
+            // Show preamble (always, 30px font)
+            if (!preamble.empty()) {
+                std::string richPreamble = buildRichText(preamble);
+                if (!richPreamble.empty()) {
+                    auto* preambleLabel = new RichTextLabel(richPreamble, 22.0f);
+                    this->changelogList->addView(preambleLabel);
+                }
+            }
+
+            // Show versions: if current == target, show target; otherwise show (current, target]
+            int startVer = (currentVer >= targetVer) ? targetVer : (currentVer + 1);
+            logFile << "Showing versions from " << startVer << " to " << targetVer << std::endl;
+
+            bool foundAny = false;
+            for (const auto& block : versionBlocks) {
+                int ver = block.first;
+                if (ver >= startVer && ver <= targetVer) {
+                    foundAny = true;
+                    std::string richContent = buildRichText(block.second);
+                    if (!richContent.empty()) {
+                        // Add version marker with 4 non-breaking spaces + bullet
+                        std::string versionLine = "**" + std::to_string(ver) + "**\n";
+                        std::string combined = versionLine + richContent;
+                        auto* versionLabel = new RichTextLabel(combined, 22.0f);
+                        this->changelogList->addView(versionLabel);
+                    }
+                }
+            }
+
+            if (!foundAny) {
+                auto* noChangeLabel = new brls::Label(brls::LabelStyle::DESCRIPTION, "No changelog entries found.", true);
+                this->changelogList->addView(noChangeLabel);
+            }
         }
     }
 
-    logFile << "=== End Debug ==" << std::endl << std::endl;
+    logFile << "=== End Debug ===" << std::endl << std::endl;
     logFile.close();
 
-    // Create button — starts DISABLED until the user scrolls to the bottom
+    // Create button
     this->button = (new brls::Button(brls::ButtonStyle::PRIMARY))
         ->setLabel("menus/changelog/proceed_to_update"_i18n);
     this->button->setState(brls::ButtonState::DISABLED);
