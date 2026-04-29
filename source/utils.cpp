@@ -20,7 +20,22 @@
 namespace i18n = brls::i18n;
 using namespace i18n::literals;
 
+// Макрос для умовного логування
+#define DEBUG_LOG(logFile, message) \
+    if (util::isDebugLoggingEnabled()) { \
+        logFile << message; \
+    }
+
 namespace util {
+
+    bool isDebugLoggingEnabled()
+    {
+        nlohmann::ordered_json config = fs::parseJsonFile(CONFIG_FILE);
+        if (config.contains("debug_logging")) {
+            return config["debug_logging"].get<bool>();
+        }
+        return false; // По замовчуванню вимкнено
+    }
 
     bool isArchive(const std::string& path)
     {
@@ -44,31 +59,101 @@ namespace util {
 
     void downloadArchive(const std::string& url, contentType type, long& status_code)
     {
+        bool logging = util::isDebugLoggingEnabled();
+        std::ofstream logFile;
+
+        if (logging) {
+            logFile.open(DEBUG_LOG_FILE, std::ios::app);
+            logFile << "======================================" << std::endl;
+            logFile << "=== downloadArchive START ===" << std::endl;
+            logFile << "Timestamp: " << time(nullptr) << std::endl;
+            logFile << "URL: " << url << std::endl;
+            logFile << "contentType: " << static_cast<int>(type) << std::endl;
+            logFile << "Creating download path: " << DOWNLOAD_PATH << std::endl;
+        }
+
         fs::createTree(DOWNLOAD_PATH);
+
+        if (logging) logFile << "Calling cleanup()..." << std::endl;
         cleanup();
+        if (logging) logFile << "cleanup() completed" << std::endl;
+
         switch (type) {
             case contentType::custom:
+                if (logging) logFile << "Type: custom, downloading to: " << CUSTOM_FILENAME << std::endl;
                 status_code = download::downloadFile(url, CUSTOM_FILENAME, OFF);
                 break;
             case contentType::cheats:
+                if (logging) logFile << "Type: cheats, downloading to: " << CHEATS_FILENAME << std::endl;
                 status_code = download::downloadFile(url, CHEATS_FILENAME, OFF);
                 break;
             case contentType::fw:
+                if (logging) logFile << "Type: fw, downloading to: " << FIRMWARE_FILENAME << std::endl;
                 status_code = download::downloadFile(url, FIRMWARE_FILENAME, OFF);
                 break;
             case contentType::app:
-                status_code = download::downloadFile(url, APP_FILENAME, OFF);
+                {
+                    if (logging) {
+                        logFile << "Type: app (DBI)" << std::endl;
+                        logFile << "Download target: " << APP_FILENAME_TEMP << std::endl;
+                        logFile << "Final target: " << APP_FILENAME << std::endl;
+                        logFile << "Before download - temp exists: " << std::filesystem::exists(APP_FILENAME_TEMP) << std::endl;
+                        logFile << "Before download - final exists: " << std::filesystem::exists(APP_FILENAME) << std::endl;
+                        logFile << "Starting download..." << std::endl;
+                    }
+
+                    status_code = download::downloadFile(url, APP_FILENAME_TEMP, OFF);
+
+                    if (logging) {
+                        logFile << "Download completed with status: " << status_code << std::endl;
+                        logFile << "After download - temp exists: " << std::filesystem::exists(APP_FILENAME_TEMP) << std::endl;
+
+                        if (std::filesystem::exists(APP_FILENAME_TEMP)) {
+                            auto size = std::filesystem::file_size(APP_FILENAME_TEMP);
+                            logFile << "Temp file size: " << size << " bytes" << std::endl;
+                        } else {
+                            logFile << "ERROR: Temp file does not exist after download!" << std::endl;
+                        }
+                    }
+
+                    // If download failed, remove incomplete temp file
+                    if (status_code != 200) {
+                        if (logging) logFile << "Download FAILED (status != 200), removing temp file..." << std::endl;
+                        if (std::filesystem::exists(APP_FILENAME_TEMP)) {
+                            std::filesystem::remove(APP_FILENAME_TEMP);
+                            if (logging) logFile << "Temp file removed, exists now: " << std::filesystem::exists(APP_FILENAME_TEMP) << std::endl;
+                        } else {
+                            if (logging) logFile << "Temp file already doesn't exist" << std::endl;
+                        }
+                    } else {
+                        if (logging) logFile << "Download SUCCESS (status == 200)" << std::endl;
+                    }
+                }
                 break;
             case contentType::bootloaders:
+                if (logging) logFile << "Type: bootloaders, downloading to: " << BOOTLOADER_FILENAME << std::endl;
                 status_code = download::downloadFile(url, BOOTLOADER_FILENAME, OFF);
                 break;
             case contentType::ams_cfw:
+                if (logging) logFile << "Type: ams_cfw, downloading to: " << AMS_FILENAME << std::endl;
                 status_code = download::downloadFile(url, AMS_FILENAME, OFF);
                 break;
             default:
+                if (logging) logFile << "Unknown type!" << std::endl;
                 break;
         }
+
+        if (logging) {
+            logFile << "Final status_code: " << status_code << std::endl;
+            logFile << "Setting ProgressEvent status_code..." << std::endl;
+        }
         ProgressEvent::instance().setStatusCode(status_code);
+
+        if (logging) {
+            logFile << "=== downloadArchive END ===" << std::endl;
+            logFile << "======================================" << std::endl << std::endl;
+            logFile.close();
+        }
     }
 
     void showDialogBoxInfo(const std::string& text)
@@ -126,6 +211,42 @@ namespace util {
 
     void crashIfNotArchive(contentType type)
     {
+        if (!util::isDebugLoggingEnabled()) {
+            // Швидкий шлях без логування
+            std::string filename;
+            switch (type) {
+                case contentType::custom:
+                    filename = CUSTOM_FILENAME;
+                    break;
+                case contentType::cheats:
+                    filename = CHEATS_FILENAME;
+                    break;
+                case contentType::fw:
+                    filename = FIRMWARE_FILENAME;
+                    break;
+                case contentType::app:
+                    return; // DBI is .nro, skip check
+                case contentType::bootloaders:
+                    filename = BOOTLOADER_FILENAME;
+                    break;
+                case contentType::ams_cfw:
+                    filename = AMS_FILENAME;
+                    break;
+                default:
+                    return;
+            }
+            if (!isArchive(filename)) {
+                ProgressEvent::instance().setStatusCode(406);
+                ProgressEvent::instance().setStep(ProgressEvent::instance().getMax());
+            }
+            return;
+        }
+
+        // З логуванням
+        std::ofstream logFile(DEBUG_LOG_FILE, std::ios::app);
+        logFile << "=== crashIfNotArchive called ===" << std::endl;
+        logFile << "contentType: " << static_cast<int>(type) << std::endl;
+
         std::string filename;
         switch (type) {
             case contentType::custom:
@@ -138,8 +259,11 @@ namespace util {
                 filename = FIRMWARE_FILENAME;
                 break;
             case contentType::app:
-                filename = APP_FILENAME;
-                break;
+                // DBI is a .nro file, not an archive - skip check
+                logFile << "contentType::app - skipping archive check (DBI is .nro)" << std::endl;
+                logFile << "=== crashIfNotArchive end ===" << std::endl << std::endl;
+                logFile.close();
+                return;
             case contentType::bootloaders:
                 filename = BOOTLOADER_FILENAME;
                 break;
@@ -147,18 +271,46 @@ namespace util {
                 filename = AMS_FILENAME;
                 break;
             default:
+                logFile << "Unknown contentType, returning" << std::endl;
+                logFile.close();
                 return;
         }
+        logFile << "Checking file: " << filename << std::endl;
+        logFile << "File exists: " << std::filesystem::exists(filename) << std::endl;
+
         if (!isArchive(filename)) {
+            logFile << "ERROR: File is not an archive! Setting error 406" << std::endl;
             ProgressEvent::instance().setStatusCode(406);
             ProgressEvent::instance().setStep(ProgressEvent::instance().getMax());
+        } else {
+            logFile << "File is a valid archive" << std::endl;
         }
+
+        logFile << "=== crashIfNotArchive end ===" << std::endl << std::endl;
+        logFile.close();
     }
 
     void extractArchive(contentType type, const std::string& version)
     {
+        bool logging = util::isDebugLoggingEnabled();
+        std::ofstream logFile;
+
+        if (logging) {
+            logFile.open(DEBUG_LOG_FILE, std::ios::app);
+            logFile << "======================================" << std::endl;
+            logFile << "=== extractArchive START ===" << std::endl;
+            logFile << "Timestamp: " << time(nullptr) << std::endl;
+            logFile << "contentType: " << static_cast<int>(type) << std::endl;
+            logFile << "version: " << version << std::endl;
+            logFile << "Changing dir to: " << ROOT_PATH << std::endl;
+        }
+
         chdir(ROOT_PATH);
+
+        if (logging) logFile << "Calling crashIfNotArchive()..." << std::endl;
         crashIfNotArchive(type);
+        if (logging) logFile << "crashIfNotArchive() completed" << std::endl;
+
         switch (type) {
             case contentType::cheats: {
                 std::vector<std::string> titles = extract::getInstalledTitlesNs();
@@ -173,8 +325,54 @@ namespace util {
                 if (std::filesystem::exists(FIRMWARE_FILENAME)) std::filesystem::remove(FIRMWARE_FILENAME);
                 break;
             case contentType::app:
-                extract::extract(APP_FILENAME, CONFIG_PATH);
-                fs::copyFile(ROMFS_FORWARDER, FORWARDER_PATH);
+                {
+                    if (logging) {
+                        logFile << "=== DBI Extract/Install Start ===" << std::endl;
+                        logFile << "Time: " << time(nullptr) << std::endl;
+                        logFile << "Temp file exists: " << std::filesystem::exists(APP_FILENAME_TEMP) << std::endl;
+                        logFile << "Old file exists: " << std::filesystem::exists(APP_FILENAME) << std::endl;
+
+                        if (std::filesystem::exists(APP_FILENAME_TEMP)) {
+                            logFile << "Temp file size: " << std::filesystem::file_size(APP_FILENAME_TEMP) << " bytes" << std::endl;
+                        }
+                        if (std::filesystem::exists(APP_FILENAME)) {
+                            logFile << "Old file size: " << std::filesystem::file_size(APP_FILENAME) << " bytes" << std::endl;
+                        }
+                    }
+
+                    // Rename temp file to final location
+                    if (std::filesystem::exists(APP_FILENAME_TEMP)) {
+                        if (logging) logFile << "Starting rename process..." << std::endl;
+
+                        if (std::filesystem::exists(APP_FILENAME)) {
+                            if (logging) logFile << "Removing old file..." << std::endl;
+                            std::filesystem::remove(APP_FILENAME);
+                            if (logging) logFile << "Old file removed: " << !std::filesystem::exists(APP_FILENAME) << std::endl;
+                        }
+
+                        if (logging) logFile << "Renaming temp to final..." << std::endl;
+                        std::filesystem::rename(APP_FILENAME_TEMP, APP_FILENAME);
+                        if (logging) {
+                            logFile << "Rename complete" << std::endl;
+                            logFile << "Final file exists: " << std::filesystem::exists(APP_FILENAME) << std::endl;
+                            logFile << "Temp file exists after rename: " << std::filesystem::exists(APP_FILENAME_TEMP) << std::endl;
+
+                            if (std::filesystem::exists(APP_FILENAME)) {
+                                logFile << "Final file size: " << std::filesystem::file_size(APP_FILENAME) << " bytes" << std::endl;
+                            }
+                        }
+                    } else {
+                        if (logging) logFile << "ERROR: Temp file does not exist, cannot rename!" << std::endl;
+                    }
+
+                    // Copy forwarder
+                    if (logging) logFile << "Copying forwarder from " << ROMFS_FORWARDER << " to " << FORWARDER_PATH << std::endl;
+                    fs::copyFile(ROMFS_FORWARDER, FORWARDER_PATH);
+                    if (logging) {
+                        logFile << "Forwarder copied" << std::endl;
+                        logFile << "=== DBI Extract/Install End ===" << std::endl << std::endl;
+                    }
+                }
                 break;
             case contentType::custom: {
                 int preserveInis = showDialogBoxBlocking("menus/utils/overwrite_inis"_i18n, "menus/common/yes"_i18n, "menus/common/no"_i18n);
@@ -204,6 +402,12 @@ namespace util {
         }
         if (type == contentType::ams_cfw || type == contentType::bootloaders || type == contentType::custom)
             fs::copyFiles(COPY_FILES_TXT);
+
+        if (logging) {
+            logFile << "=== extractArchive END ===" << std::endl;
+            logFile << "======================================" << std::endl << std::endl;
+            logFile.close();
+        }
     }
 
     std::string formatListItemTitle(const std::string& str, size_t maxScore)
@@ -440,15 +644,76 @@ namespace util {
 
 void cleanup()
 {
+    if (!util::isDebugLoggingEnabled()) {
+        // Швидкий шлях без логування
+        std::filesystem::remove(AMS_FILENAME);
+        std::filesystem::remove(APP_FILENAME_TEMP);
+        std::filesystem::remove(FIRMWARE_FILENAME);
+        std::filesystem::remove(CHEATS_FILENAME);
+        std::filesystem::remove(BOOTLOADER_FILENAME);
+        std::filesystem::remove(CHEATS_VERSION);
+        std::filesystem::remove(CUSTOM_FILENAME);
+        std::filesystem::remove(CFW_FILENAME);
+        fs::removeDir(AMS_DIRECTORY_PATH);
+        fs::removeDir(SEPT_DIRECTORY_PATH);
+        fs::removeDir(FW_DIRECTORY_PATH);
+        fs::removeDir(KEFIR_DIRECTORY_PATH);
+        return;
+    }
+
+    // З логуванням
+    std::ofstream logFile(DEBUG_LOG_FILE, std::ios::app);
+    logFile << "=== cleanup() START ===" << std::endl;
+    logFile << "Timestamp: " << time(nullptr) << std::endl;
+
+    logFile << "Removing: " << AMS_FILENAME << " (exists: " << std::filesystem::exists(AMS_FILENAME) << ")" << std::endl;
     std::filesystem::remove(AMS_FILENAME);
+
+    logFile << "Removing: " << APP_FILENAME_TEMP << " (exists: " << std::filesystem::exists(APP_FILENAME_TEMP) << ")" << std::endl;
+    std::filesystem::remove(APP_FILENAME_TEMP);
+
+    logFile << "Removing: " << FIRMWARE_FILENAME << " (exists: " << std::filesystem::exists(FIRMWARE_FILENAME) << ")" << std::endl;
     std::filesystem::remove(FIRMWARE_FILENAME);
+
+    logFile << "Removing: " << CHEATS_FILENAME << " (exists: " << std::filesystem::exists(CHEATS_FILENAME) << ")" << std::endl;
     std::filesystem::remove(CHEATS_FILENAME);
+
+    logFile << "Removing: " << BOOTLOADER_FILENAME << " (exists: " << std::filesystem::exists(BOOTLOADER_FILENAME) << ")" << std::endl;
     std::filesystem::remove(BOOTLOADER_FILENAME);
+
+    logFile << "Removing: " << CHEATS_VERSION << " (exists: " << std::filesystem::exists(CHEATS_VERSION) << ")" << std::endl;
     std::filesystem::remove(CHEATS_VERSION);
+
+    logFile << "Removing: " << CUSTOM_FILENAME << " (exists: " << std::filesystem::exists(CUSTOM_FILENAME) << ")" << std::endl;
     std::filesystem::remove(CUSTOM_FILENAME);
+
+    logFile << "Removing: " << CFW_FILENAME << " (exists: " << std::filesystem::exists(CFW_FILENAME) << ")" << std::endl;
     std::filesystem::remove(CFW_FILENAME);
+
+    logFile << "Removing dir: " << AMS_DIRECTORY_PATH << " (exists: " << std::filesystem::exists(AMS_DIRECTORY_PATH) << ")" << std::endl;
     fs::removeDir(AMS_DIRECTORY_PATH);
+
+    logFile << "Removing dir: " << SEPT_DIRECTORY_PATH << " (exists: " << std::filesystem::exists(SEPT_DIRECTORY_PATH) << ")" << std::endl;
     fs::removeDir(SEPT_DIRECTORY_PATH);
+
+    logFile << "Removing dir: " << FW_DIRECTORY_PATH << " (exists: " << std::filesystem::exists(FW_DIRECTORY_PATH) << ")" << std::endl;
     fs::removeDir(FW_DIRECTORY_PATH);
+
+    logFile << "Removing dir: " << KEFIR_DIRECTORY_PATH << " (exists: " << std::filesystem::exists(KEFIR_DIRECTORY_PATH) << ")" << std::endl;
     fs::removeDir(KEFIR_DIRECTORY_PATH);
+
+    logFile << "=== cleanup() END ===" << std::endl << std::endl;
+    logFile.close();
+}
+
+void cleanupOnExit()
+{
+    std::filesystem::remove(APP_FILENAME_TEMP);
+
+    if (util::isDebugLoggingEnabled()) {
+        std::ofstream logFile(DEBUG_LOG_FILE, std::ios::app);
+        logFile << "=== cleanupOnExit() called ===" << std::endl;
+        logFile << "Removed: " << APP_FILENAME_TEMP << std::endl << std::endl;
+        logFile.close();
+    }
 }

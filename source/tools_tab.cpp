@@ -107,6 +107,7 @@ ToolsTab::ToolsTab(const std::string& tag, const nlohmann::ordered_json& payload
     cleanUp->getClickEvent()->subscribe([](brls::View* view) {
         std::filesystem::remove(AMS_FILENAME);
         std::filesystem::remove(APP_FILENAME);
+        std::filesystem::remove(APP_FILENAME_TEMP);
         std::filesystem::remove(FIRMWARE_FILENAME);
         std::filesystem::remove(CHEATS_FILENAME);
         std::filesystem::remove(BOOTLOADER_FILENAME);

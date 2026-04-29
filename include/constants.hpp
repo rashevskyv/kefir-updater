@@ -7,6 +7,7 @@ constexpr const char DOWNLOAD_PATH[] =              "/config/kefir-updater/";
 constexpr const char CONFIG_PATH[] =                "/config/kefir-updater/";
 constexpr const char CONFIG_PATH_UNZIP[] =          "config\\kefir-updater";
 constexpr const char CONFIG_FILE[] =                "/config/kefir-updater/config.json";
+constexpr const char DEBUG_LOG_FILE[] =             "/config/kefir-updater/dbi_update.log";
 
 constexpr const char RCM_PAYLOAD_PATH[] =           "/payload.bin";
 constexpr const char MARIKO_PAYLOAD_PATH[] =        "/payload.bin";
@@ -15,6 +16,7 @@ constexpr const char MARIKO_PAYLOAD_PATH_TEMP[] =   "/payload.bin.aio";
 constexpr const char APP_URL[] =                    "https://github.com/rashevskyv/DBI/releases/latest/download/DBI.nro";
 constexpr const char TAGS_INFO[] =                  "https://api.github.com/repos/rashevskyv/DBI/releases/latest";
 constexpr const char APP_FILENAME[] =               "/switch/DBI/DBI.nro";
+constexpr const char APP_FILENAME_TEMP[] =          "/switch/DBI/DBI.nro.tmp";
 
 constexpr const char NXLINKS_URL[] =                "https://raw.githubusercontent.com/rashevskyv/nx-links/master/nx-links.json";
 constexpr const char CUSTOM_FILENAME[] =            "/config/kefir-updater/custom.zip";

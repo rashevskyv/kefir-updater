@@ -9,6 +9,7 @@
 #include "fs.hpp"
 #include "main_frame.hpp"
 #include "warning_page.hpp"
+#include "utils.hpp"
 
 namespace i18n = brls::i18n;
 using namespace i18n::literals;
@@ -64,6 +65,9 @@ int main(int argc, char* argv[])
     }
 
     while (brls::Application::mainLoop());
+
+    // Clean up temporary files on exit
+    cleanupOnExit();
 
     romfsExit();
     splExit();

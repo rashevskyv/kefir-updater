@@ -343,6 +343,24 @@ class RichTextLabel : public brls::View
                 isBold = !isBold;
                 i += 2;
             }
+            // Check for URLs: http:// or https://
+            else if ((i + 7 <= richText.size() && richText.substr(i, 7) == "http://") ||
+                     (i + 8 <= richText.size() && richText.substr(i, 8) == "https://")) {
+                if (!cur.empty()) { segs.push_back({cur, isBold, currentColor}); cur.clear(); }
+
+                // Find end of URL (space, newline, or end of string)
+                size_t urlEnd = i;
+                while (urlEnd < richText.size() &&
+                       richText[urlEnd] != ' ' &&
+                       richText[urlEnd] != '\n' &&
+                       richText[urlEnd] != '\t') {
+                    urlEnd++;
+                }
+
+                std::string url = richText.substr(i, urlEnd - i);
+                segs.push_back({url, isBold, Color::Blue});
+                i = urlEnd;
+            }
             // Check for [text](url) - markdown link (blue color)
             // or [text] - brackets white, content inside is gray (but can be bold too)
             else if (richText[i] == '[') {
@@ -886,11 +904,11 @@ ChangelogPage_Kefir::ChangelogPage_Kefir(brls::StagedAppletFrame* frame, const s
 
             logFile << "Preamble len: " << preamble.length() << ", version blocks: " << versionBlocks.size() << std::endl;
 
-            // Show preamble (always, 30px font, no bullets)
+            // Show preamble (always, 26px font, no bullets)
             if (!preamble.empty()) {
                 std::string richPreamble = buildRichText(preamble, false);
                 if (!richPreamble.empty()) {
-                    auto* preambleLabel = new RichTextLabel(richPreamble, 30.0f);
+                    auto* preambleLabel = new RichTextLabel(richPreamble, 26.0f);
                     this->changelogList->addView(preambleLabel);
                 }
             }
