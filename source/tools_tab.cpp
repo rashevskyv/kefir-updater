@@ -37,6 +37,8 @@ ToolsTab::ToolsTab(const std::string& tag, const nlohmann::ordered_json& payload
             stagedFrame->addStage(
                 new WorkerPage(stagedFrame, "menus/common/downloading"_i18n, []() { util::downloadArchive(APP_URL, contentType::app); }));
             stagedFrame->addStage(
+                new WorkerPage(stagedFrame, "menus/common/installing"_i18n, []() { util::extractArchive(contentType::app); }));
+            stagedFrame->addStage(
                 new ConfirmPage_Done(stagedFrame, "menus/common/all_done"_i18n));
             brls::Application::pushView(stagedFrame);
         });
