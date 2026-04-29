@@ -806,12 +806,6 @@ static std::string buildRichText(const std::string& section, bool addBullets)
 // ChangelogPage_Kefir implementation
 ChangelogPage_Kefir::ChangelogPage_Kefir(brls::StagedAppletFrame* frame, const std::string& currentVersion, const std::string& targetVersion, const std::string& url)
 {
-    // Log debug info
-    std::ofstream logFile("/config/kefir-updater/changelog_debug.log", std::ios::app);
-    logFile << "=== ChangelogPage_Kefir Debug ===" << std::endl;
-    logFile << "Current version raw: " << currentVersion << std::endl;
-    logFile << "Target version raw: " << targetVersion << std::endl;
-
     // Create warning label
     this->warningLabel = new brls::Label(
         brls::LabelStyle::REGULAR,
@@ -829,30 +823,22 @@ ChangelogPage_Kefir::ChangelogPage_Kefir(brls::StagedAppletFrame* frame, const s
     int currentVer = parseKefirVersion(currentVersion);
     int targetVer  = parseKefirVersion(targetVersion);
 
-    logFile << "Parsed current: " << currentVer << std::endl;
-    logFile << "Parsed target: " << targetVer << std::endl;
-
     if (targetVer == 0) {
         auto* errorLabel = new brls::Label(brls::LabelStyle::DESCRIPTION, "Could not determine target version.", true);
         this->changelogList->addView(errorLabel);
-        logFile << "ERROR: Target version is 0" << std::endl;
     } else {
         // Download the full changelog file
         std::string changelogUrl = "https://raw.githubusercontent.com/rashevskyv/kefir/master/changelog_full";
-        logFile << "Downloading: " << changelogUrl << std::endl;
 
         std::string changelogText = util::downloadFileToString(changelogUrl);
-        logFile << "Got " << changelogText.length() << " bytes" << std::endl;
 
         if (changelogText.empty()) {
             auto* errorLabel = new brls::Label(brls::LabelStyle::DESCRIPTION, "Failed to download changelog.", true);
             this->changelogList->addView(errorLabel);
-            logFile << "ERROR: Failed to download" << std::endl;
         } else {
             // Extract language section
             bool ukrainian = isUkrainianLocale();
             std::string section = extractChangelogSection(changelogText, ukrainian);
-            logFile << "Language: " << (ukrainian ? "ua" : "en") << ", section len: " << section.length() << std::endl;
 
             // Parse the section into preamble + version blocks
             std::string preamble;
@@ -902,8 +888,6 @@ ChangelogPage_Kefir::ChangelogPage_Kefir(brls::StagedAppletFrame* frame, const s
                 versionBlocks.push_back({currentBlock, blockContent});
             }
 
-            logFile << "Preamble len: " << preamble.length() << ", version blocks: " << versionBlocks.size() << std::endl;
-
             // Show preamble (always, 26px font, no bullets)
             if (!preamble.empty()) {
                 std::string richPreamble = buildRichText(preamble, false);
@@ -915,7 +899,6 @@ ChangelogPage_Kefir::ChangelogPage_Kefir(brls::StagedAppletFrame* frame, const s
 
             // Show versions: if current == target, show target; otherwise show (current, target]
             int startVer = (currentVer >= targetVer) ? targetVer : (currentVer + 1);
-            logFile << "Showing versions from " << startVer << " to " << targetVer << std::endl;
 
             bool foundAny = false;
             for (const auto& block : versionBlocks) {
@@ -939,9 +922,6 @@ ChangelogPage_Kefir::ChangelogPage_Kefir(brls::StagedAppletFrame* frame, const s
             }
         }
     }
-
-    logFile << "=== End Debug ===" << std::endl << std::endl;
-    logFile.close();
 
     // Create button
     this->button = (new brls::Button(brls::ButtonStyle::PRIMARY))
