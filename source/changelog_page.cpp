@@ -306,7 +306,7 @@ void ChangelogPage::ShowChangelogContent(const std::string version, const std::s
 // bold is simulated by drawing each glyph twice with a 0.5 px x-offset.
 class RichTextLabel : public brls::View
 {
-    enum class Color { Normal, Gray, Red };
+    enum class Color { Normal, Gray, Red, Blue };
     struct Seg { std::string text; bool bold; Color color; };
     std::vector<Seg> segs;
     float fontSize = 0.0f; // 0 = use style default
@@ -324,12 +324,43 @@ class RichTextLabel : public brls::View
                 isBold = !isBold;
                 i += 2;
             }
-            // Check for [text] - brackets white, content inside is gray (but can be bold too)
+            // Check for [text](url) - markdown link (blue color)
+            // or [text] - brackets white, content inside is gray (but can be bold too)
             else if (richText[i] == '[') {
                 if (!cur.empty()) { segs.push_back({cur, isBold, currentColor}); cur.clear(); }
 
                 size_t end = richText.find(']', i + 1);
                 if (end != std::string::npos) {
+                    // Check if this is a markdown link [text](url)
+                    if (end + 1 < richText.size() && richText[end + 1] == '(') {
+                        size_t urlEnd = richText.find(')', end + 2);
+                        if (urlEnd != std::string::npos) {
+                            // This is a markdown link - render text in blue
+                            std::string linkText = richText.substr(i + 1, end - i - 1);
+
+                            // Parse link text with ** support, but force blue color
+                            bool innerBold = false;
+                            std::string innerCur;
+                            for (size_t j = 0; j < linkText.size(); ) {
+                                if (j + 1 < linkText.size() && linkText[j] == '*' && linkText[j+1] == '*') {
+                                    if (!innerCur.empty()) {
+                                        segs.push_back({innerCur, innerBold, Color::Blue});
+                                        innerCur.clear();
+                                    }
+                                    innerBold = !innerBold;
+                                    j += 2;
+                                } else {
+                                    innerCur += linkText[j++];
+                                }
+                            }
+                            if (!innerCur.empty()) segs.push_back({innerCur, innerBold, Color::Blue});
+
+                            i = urlEnd + 1; // Skip the entire [text](url)
+                            continue;
+                        }
+                    }
+
+                    // Not a markdown link - treat as regular [text] with gray content
                     // Add opening bracket (normal color, not gray)
                     segs.push_back({"[", false, Color::Normal});
 
@@ -423,6 +454,18 @@ class RichTextLabel : public brls::View
                     cur += richText[i++];
                 }
             }
+            // Check for {{blue}}text{{/blue}}
+            else if (i + 7 < richText.size() && richText.substr(i, 8) == "{{blue}}") {
+                if (!cur.empty()) { segs.push_back({cur, isBold, currentColor}); cur.clear(); }
+                size_t end = richText.find("{{/blue}}", i + 8);
+                if (end != std::string::npos) {
+                    std::string blueText = richText.substr(i + 8, end - i - 8);
+                    segs.push_back({blueText, isBold, Color::Blue});
+                    i = end + 9;
+                } else {
+                    cur += richText[i++];
+                }
+            }
             else {
                 cur += richText[i++];
             }
@@ -487,6 +530,8 @@ class RichTextLabel : public brls::View
                     drawColor = nvgRGBA(128, 128, 128, 255); // Gray
                 } else if (wordColor == Color::Red) {
                     drawColor = nvgRGBA(255, 80, 80, 255); // Red
+                } else if (wordColor == Color::Blue) {
+                    drawColor = nvgRGBA(100, 150, 255, 255); // Light blue (link color)
                 }
                 nvgFillColor(vg, drawColor);
 
@@ -594,8 +639,8 @@ static std::string extractChangelogSection(const std::string& raw, bool ukrainia
     }
 }
 
-// Remove markdown links: [visible](url) → visible
-static std::string removeMarkdownLinks(const std::string& text)
+// Process markdown links: [visible](url) → {{blue}}visible{{/blue}}
+static std::string processMarkdownLinks(const std::string& text)
 {
     std::string result;
     result.reserve(text.size());
@@ -605,7 +650,9 @@ static std::string removeMarkdownLinks(const std::string& text)
             if (closeB != std::string::npos && closeB + 1 < text.size() && text[closeB+1] == '(') {
                 size_t closeP = text.find(')', closeB + 2);
                 if (closeP != std::string::npos) {
-                    result += text.substr(i + 1, closeB - i - 1);
+                    // This is a markdown link - wrap text in {{blue}}
+                    std::string linkText = text.substr(i + 1, closeB - i - 1);
+                    result += "{{blue}}" + linkText + "{{/blue}}";
                     i = closeP + 1;
                     continue;
                 }
@@ -614,6 +661,14 @@ static std::string removeMarkdownLinks(const std::string& text)
         result += text[i++];
     }
     return result;
+}
+
+// Process markdown links: [visible](url) → keep as is for parse() to handle
+// Remove backticks from code spans
+static std::string processMarkdown(const std::string& text)
+{
+    // Just return as-is, parse() will handle [text](url) links
+    return text;
 }
 
 // Returns true when trimmed line is entirely bold: **content**
@@ -658,18 +713,8 @@ static std::string buildRichText(const std::string& section)
         for (size_t i = 0; i < ns; i++)
             indentStr += (line[i] == '\t') ? "    " : " ";
 
-        // Remove markdown links (keeps **bold** intact)
-        std::string processed = removeMarkdownLinks(trimmed);
-
-        // Remove backtick code spans
-        {
-            std::string out; bool inCode = false;
-            for (char c : processed) {
-                if (c == '`') { inCode = !inCode; continue; }
-                out += c;
-            }
-            processed = out;
-        }
+        // Process markdown links: [text](url) → {{blue}}text{{/blue}}
+        std::string processed = processMarkdownLinks(trimmed);
 
         // Keep ** bold markers; remove bare single * (italic)
         {
