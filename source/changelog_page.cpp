@@ -688,7 +688,8 @@ static bool isFullBoldLine(const std::string& trimmed)
 // Build a rich-text string for RichTextLabel from a filtered version section.
 // **bold** markers are PRESERVED; markdown links are stripped; backticks removed;
 // bullets converted to •; blank lines removed.
-static std::string buildRichText(const std::string& section)
+// addBullets: if true, adds 5 non-breaking spaces + bullet before each line
+static std::string buildRichText(const std::string& section, bool addBullets)
 {
     std::istringstream stream(section);
     std::string line;
@@ -733,10 +734,12 @@ static std::string buildRichText(const std::string& section)
             processed = out;
         }
 
-        // Don't add bullet here - it will be added below for all lines
-
         if (!firstLine) result += '\n';
-        result += "\u00A0\u00A0\u00A0\u00A0\u2022 " + indentStr + processed;
+        if (addBullets) {
+            result += "\u00A0\u00A0\u00A0\u00A0\u00A0\u2022 " + indentStr + processed;
+        } else {
+            result += indentStr + processed;
+        }
         firstLine = false;
     }
     return result;
@@ -844,11 +847,11 @@ ChangelogPage_Kefir::ChangelogPage_Kefir(brls::StagedAppletFrame* frame, const s
 
             logFile << "Preamble len: " << preamble.length() << ", version blocks: " << versionBlocks.size() << std::endl;
 
-            // Show preamble (always, 30px font)
+            // Show preamble (always, 30px font, no bullets)
             if (!preamble.empty()) {
-                std::string richPreamble = buildRichText(preamble);
+                std::string richPreamble = buildRichText(preamble, false);
                 if (!richPreamble.empty()) {
-                    auto* preambleLabel = new RichTextLabel(richPreamble, 22.0f);
+                    auto* preambleLabel = new RichTextLabel(richPreamble, 30.0f);
                     this->changelogList->addView(preambleLabel);
                 }
             }
@@ -862,7 +865,7 @@ ChangelogPage_Kefir::ChangelogPage_Kefir(brls::StagedAppletFrame* frame, const s
                 int ver = block.first;
                 if (ver >= startVer && ver <= targetVer) {
                     foundAny = true;
-                    std::string richContent = buildRichText(block.second);
+                    std::string richContent = buildRichText(block.second, true);
                     if (!richContent.empty()) {
                         // Add version marker with 4 non-breaking spaces + bullet
                         std::string versionLine = "**" + std::to_string(ver) + "**\n";
