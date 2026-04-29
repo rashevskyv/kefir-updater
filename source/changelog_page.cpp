@@ -318,8 +318,27 @@ class RichTextLabel : public brls::View
         std::string cur;
 
         for (size_t i = 0; i < richText.size(); ) {
+            // Check for `text` FIRST - everything inside is gray (monospace style)
+            // Process backticks BEFORE brackets so [] inside backticks stays gray
+            if (richText[i] == '`') {
+                if (!cur.empty()) { segs.push_back({cur, isBold, currentColor}); cur.clear(); }
+
+                size_t end = richText.find('`', i + 1);
+                if (end != std::string::npos) {
+                    // Opening backtick (white)
+                    segs.push_back({"`", false, Color::Normal});
+                    // Content between backticks is gray
+                    std::string backtickContent = richText.substr(i + 1, end - i - 1);
+                    segs.push_back({backtickContent, false, Color::Gray});
+                    // Closing backtick (white)
+                    segs.push_back({"`", false, Color::Normal});
+                    i = end + 1;
+                } else {
+                    cur += richText[i++];
+                }
+            }
             // Check for **bold**
-            if (i + 1 < richText.size() && richText[i] == '*' && richText[i+1] == '*') {
+            else if (i + 1 < richText.size() && richText[i] == '*' && richText[i+1] == '*') {
                 if (!cur.empty()) { segs.push_back({cur, isBold, currentColor}); cur.clear(); }
                 isBold = !isBold;
                 i += 2;
@@ -329,7 +348,26 @@ class RichTextLabel : public brls::View
             else if (richText[i] == '[') {
                 if (!cur.empty()) { segs.push_back({cur, isBold, currentColor}); cur.clear(); }
 
-                size_t end = richText.find(']', i + 1);
+                // Find matching ] while skipping content inside backticks
+                size_t end = std::string::npos;
+                size_t j = i + 1;
+                while (j < richText.size()) {
+                    if (richText[j] == '`') {
+                        // Skip to closing backtick
+                        size_t backEnd = richText.find('`', j + 1);
+                        if (backEnd != std::string::npos) {
+                            j = backEnd + 1;
+                        } else {
+                            j++;
+                        }
+                    } else if (richText[j] == ']') {
+                        end = j;
+                        break;
+                    } else {
+                        j++;
+                    }
+                }
+
                 if (end != std::string::npos) {
                     // Check if this is a markdown link [text](url)
                     if (end + 1 < richText.size() && richText[end + 1] == '(') {
@@ -364,12 +402,32 @@ class RichTextLabel : public brls::View
                     // Add opening bracket (normal color, not gray)
                     segs.push_back({"[", false, Color::Normal});
 
-                    // Parse content with ** support, but force gray color
+                    // Parse content with ** and `` support, but force gray color
                     std::string bracketContent = richText.substr(i + 1, end - i - 1);
                     bool innerBold = false;
                     std::string innerCur;
                     for (size_t j = 0; j < bracketContent.size(); ) {
-                        if (j + 1 < bracketContent.size() && bracketContent[j] == '*' && bracketContent[j+1] == '*') {
+                        // Check for backticks inside brackets
+                        if (bracketContent[j] == '`') {
+                            if (!innerCur.empty()) {
+                                segs.push_back({innerCur, innerBold, Color::Gray});
+                                innerCur.clear();
+                            }
+                            size_t backEnd = bracketContent.find('`', j + 1);
+                            if (backEnd != std::string::npos) {
+                                // Opening backtick (white)
+                                segs.push_back({"`", false, Color::Normal});
+                                // Content is gray
+                                std::string backContent = bracketContent.substr(j + 1, backEnd - j - 1);
+                                segs.push_back({backContent, false, Color::Gray});
+                                // Closing backtick (white)
+                                segs.push_back({"`", false, Color::Normal});
+                                j = backEnd + 1;
+                            } else {
+                                innerCur += bracketContent[j++];
+                            }
+                        }
+                        else if (j + 1 < bracketContent.size() && bracketContent[j] == '*' && bracketContent[j+1] == '*') {
                             if (!innerCur.empty()) {
                                 segs.push_back({innerCur, innerBold, Color::Gray});
                                 innerCur.clear();
@@ -396,8 +454,8 @@ class RichTextLabel : public brls::View
 
                 size_t end = richText.find('\'', i + 1);
                 if (end != std::string::npos) {
-                    // Add opening quote (gray)
-                    segs.push_back({"'", false, Color::Gray});
+                    // Add opening quote (white)
+                    segs.push_back({"'", false, Color::Normal});
                     // Add content (gray, can be bold)
                     std::string quoteContent = richText.substr(i + 1, end - i - 1);
                     bool innerBold = false;
@@ -415,27 +473,8 @@ class RichTextLabel : public brls::View
                         }
                     }
                     if (!innerCur.empty()) segs.push_back({innerCur, innerBold, Color::Gray});
-                    // Add closing quote (gray)
-                    segs.push_back({"'", false, Color::Gray});
-
-                    i = end + 1;
-                } else {
-                    cur += richText[i++];
-                }
-            }
-            // Check for `text` - everything inside is gray (monospace style)
-            else if (richText[i] == '`') {
-                if (!cur.empty()) { segs.push_back({cur, isBold, currentColor}); cur.clear(); }
-
-                size_t end = richText.find('`', i + 1);
-                if (end != std::string::npos) {
-                    // Add opening backtick (gray)
-                    segs.push_back({"`", false, Color::Gray});
-                    // Add content (gray)
-                    std::string backtickContent = richText.substr(i + 1, end - i - 1);
-                    segs.push_back({backtickContent, false, Color::Gray});
-                    // Add closing backtick (gray)
-                    segs.push_back({"`", false, Color::Gray});
+                    // Add closing quote (white)
+                    segs.push_back({"'", false, Color::Normal});
 
                     i = end + 1;
                 } else {
